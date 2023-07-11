@@ -63,5 +63,5 @@ T
 >> Provice Guest Molecule Formula delimited by a space ex. CO2 N2 << 
 CO2 N2
 >> Provide Sites delimited by a space and grouped by molecule ex. Cx,Ox Nx <<
-Cx,Ox Nx,COM
+Cx,Ox Nx,COM,Hx
 ------------------------------------------------------------------------------------------
