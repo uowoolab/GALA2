@@ -1,11 +1,9 @@
-#!/usr/bin/env python3
-
 import os
 import numpy as np
 from pymatgen.core import Element, IMolecule, Molecule
 from pymatgen.io.common import VolumetricData
-from scipy.ndimage import gaussian_filter, maximum_filter
-from scipy.ndimage import generate_binary_structure, binary_erosion, iterate_structure
+from scipy.ndimage.filters import gaussian_filter, maximum_filter
+from scipy.ndimage.morphology import generate_binary_structure, binary_erosion, iterate_structure
 
 
 class GalaInput:
@@ -50,6 +48,10 @@ class GuestStructure:
         self.method = self.gala.Method
         self.directory = self.gala.Directory
 
+        if len(self.gala.Selected_Guest) != len(self.gala.Selected_Site):
+            raise ValueError(
+                "Error Code: GUEST_SITE_MISMATCH\nError Description: The selected guest and site information is inconsistent.")
+
         if self.method == 'FASTMC':
             guests_chemical_structure, guests_atoms_coordinates, guest_sites_labels, site_data = self.parse_fastmc()
             self.guest_molecules = []
@@ -58,6 +60,18 @@ class GuestStructure:
                 guest_molecule = GuestMolecule(
                     species=element, coords=coordinate, sites_data=molecule_site_data, gala_instance=self.gala)
                 self.guest_molecules.append(guest_molecule)
+
+        elif self.method == 'RASPA':
+            guests_chemical_structure, guests_atoms_coordinates, guest_sites_labels, site_data = self.parse_raspa()
+            self.guest_molecules = []
+
+            for element, coordinate, molecule_site_data in zip(guests_chemical_structure, guests_atoms_coordinates, site_data):
+                guest_molecule = GuestMolecule(
+                    species=element, coords=coordinate, sites_data=molecule_site_data, gala_instance=self.gala)
+                self.guest_molecules.append(guest_molecule)
+
+        else:
+            raise ValueError(f"Unknown method: {self.method}")
 
     def __str__(self):
         """
@@ -76,11 +90,6 @@ class GuestStructure:
         Returns:
             tuple: Tuple containing parsed guest information (elements, coordinates, site_labels, site_data).
         """
-
-        if len(self.gala.Selected_Guest) != len(self.gala.Selected_Site):
-            raise ValueError(
-                "Error Code: GUEST_SITE_MISMATCH\nError Description: The selected guest and site information is inconsistent.")
-
         try:
             with open(os.path.join(self.gala.Directory, "FIELD"), "r") as f:
                 field_lines = f.readlines()
@@ -94,7 +103,7 @@ class GuestStructure:
         read_atoms = False
         def reset_current_guest(): return {'valid_labels': [], 'coordinates': [
         ], 'species': [], 'site_data': []}
-        current_guest = reset_current_guest()
+        current_guest = reset_current_guest()  # initialize current_guest
 
         for line in field_lines:
             if "&guest" in line:
@@ -127,7 +136,6 @@ class GuestStructure:
         guests_reduced, elements, dummy_atoms = self.post_process_guests(
             guests)
 
-        
         selected_guests = self.select_guests(
             guests, guests_reduced, elements, dummy_atoms)
 
@@ -196,6 +204,7 @@ class GuestStructure:
         elements = [str(e) for e in Element]
         dummy_atoms = set(
             species for guest in guests for species in guest['species'] if species not in elements)
+
         return guests_reduced, elements, dummy_atoms
 
     def select_guests(self, guests, guests_reduced, elements, dummy_atoms):
@@ -266,6 +275,99 @@ class GuestStructure:
             grouped_site_data[label]['coordinates'].append(data[2])
             grouped_site_data[label]['charges'].append(data[3])
         return [[label, data['element'], data['coordinates'], data['charges']] for label, data in grouped_site_data.items()]
+
+    def parse_raspa(self):
+        """
+        Parse the RASPA simulation data, pseudo atoms data, and molecule data.
+
+        Returns:
+            tuple: Tuple containing parsed guest information (elements, coordinates, species, site_data).
+        """
+        # Use the appropriate path to your RASPA files
+        simulation_data = GuestStructure.extract_simulation_data(
+            os.path.join(self.gala.Directory, "simulation.input"))
+        pseudo_atoms_data = GuestStructure.extract_pseudo_atoms_data(
+            os.path.join(self.gala.Directory, "pseudo_atoms.def"))
+        guest_dict = GuestStructure.extract_molecule_data(
+            simulation_data, pseudo_atoms_data)
+
+        guests_reduced, elements, dummy_atoms = self.post_process_guests(
+            guest_dict)
+
+        selected_guests = self.select_guests(
+            guest_dict, guests_reduced, elements, dummy_atoms)
+
+        return selected_guests
+
+    def extract_simulation_data(filename):
+        molecule_names = []
+        with open(filename, 'r') as file:
+            for line in file:
+                if line.startswith('Component'):
+                    molecule_name = line.split()[-1]
+                    molecule_names.append([molecule_name])
+        return molecule_names
+
+    def extract_pseudo_atoms_data(filename):
+        pseudo_atoms_data = {}
+        with open(filename, 'r') as file:
+            for line in file:
+                if line.startswith("#type"):
+                    break
+            for line in file:
+                parts = line.split()
+                if not parts:
+                    continue
+                atom_type = parts[0]
+                chem = parts[3] if parts[3] != '-' else 'D'
+                charge = float(parts[6])
+                pseudo_atoms_data[atom_type] = {'chem': chem, 'charge': charge}
+        return pseudo_atoms_data
+
+    def extract_molecule_data(molecule_names, pseudo_atoms_data):
+        result = []
+
+        for molecule_name in molecule_names:
+            molecule_data = {
+                'valid_labels': [],
+                'coordinates': [],
+                'species': [],
+                'site_data': []
+            }
+
+            molecule_file = f'/Users/oliviermarchand/Desktop/Python_Codes/Masters/GALA_v2/Jake/GALA-main/Oli_test/{molecule_name[0]}.def'
+            atomic_data = []
+            with open(molecule_file, 'r') as file:
+                copy = False
+                for line in file:
+                    if line.strip() == '# atomic positions':
+                        copy = True
+                    elif line.strip() == '# Chiral centers Bond  BondDipoles Bend  UrayBradley InvBend  Torsion Imp. Torsion Bond/Bond Stretch/Bend Bend/Bend Stretch/Torsion Bend/Torsion IntraVDW IntraCoulomb':
+                        copy = False
+                    elif copy:
+                        atomic_data.append(line.split())
+
+            # Construct the required lists from the atomic data
+            species = [data[1] for data in atomic_data]
+            elements = [pseudo_atoms_data[specie]['chem']
+                        for specie in species if pseudo_atoms_data[specie]['chem'] != 'D']
+            coordinates = [(float(data[2]), float(data[3]), float(data[4]))
+                           for data in atomic_data if pseudo_atoms_data[data[1]]['chem'] != 'D']
+            charge = [pseudo_atoms_data[specie]['charge']
+                      for specie in species]
+            site_data = [[specie, pseudo_atoms_data[specie]['chem'], (float(data[2]), float(data[3]), float(
+                data[4])), charge] for data, specie, charge in zip(atomic_data, species, charge)]
+
+            # Append to molecule_data
+            molecule_data['valid_labels'].extend(elements)
+            molecule_data['coordinates'].extend(coordinates)
+            molecule_data['species'].extend(species)
+            molecule_data['site_data'].extend(site_data)
+
+            # Append molecule_data to result
+            result.append(molecule_data)
+
+        return result
 
 
 class GuestMolecule(IMolecule):
@@ -357,7 +459,7 @@ class Site:
         maxima_info = "Maxima:\n"
         for i, (coords, value) in enumerate(zip(maxima_coords, maxima_values), start=1):
             maxima_info += f"\tMaxima {i}: Value: {value}\n\t\t  Cartesian Coordinates: {list(coords)}\n\t\t  Fractional Coordinates: {list(fractional_coords[i-1])}\n"
-        
+
         return maxima_info
 
         # return maxima_values
@@ -388,7 +490,7 @@ class Site:
     def binding_sites(self):
         if self._binding_sites is None:
             self.calculate_binding_sites()
-        
+
         binding_site_coords = self._binding_sites
 
         return binding_site_coords
@@ -487,29 +589,24 @@ Error Message: We apologize, but we couldn't locate any available unfolded or fo
 
 
 if __name__ == "__main__":
-    GALA_MAIN = os.getcwd()
+    GALA_MAIN = '/Users/oliviermarchand/Desktop/Python_Codes/Masters/GALA_v2/Jake/GALA-main/Oli_test/test_dir/'
     gala_input = GalaInput(GALA_MAIN)
 
     # Print all output for specifed Guests and Sites
     structure = GuestStructure(gala_input)
-    
-    print(structure.guest_molecules[0].guest_sites[0].binding_sites)
-    
-    #print(structure)
+    print(structure)
 
-    # Prints only maxima for guest N2 of Nx site
-    #print(structure.guest_molecules[1].guest_sites[0].maxima)
+    # # Prints only maxima for guest N2 of Nx site
+    # print(structure.guest_molecules[1].guest_sites[0].binding_sites)
 
-    # Print IMolecule center of mass of guest 0 (CO2)
-    #print(structure.guest_molecules[0].center_of_mass)
+    # # Print IMolecule center of mass of guest 0 (CO2)
+    # print(structure.guest_molecules[0].center_of_mass)
 
-    # Print IMolecule centered molecule of guest 0 (N2)
-    #print(structure.guest_molecules[1].get_centered_molecule)
+    # # Print IMolecule centered molecule of guest 0 (N2)
+    # print(structure.guest_molecules[1].get_centered_molecule)
 
-    # Print Specific Site Data, for example guest 0, site 1 (CO2, Cx)
-    #print(structure.guest_molecules[0].guest_sites[0])
+    # # Print Specific Site Data, for example guest 0, site 1 (CO2, Cx)
+    # print(structure.guest_molecules[0].guest_sites[0])
 
-    # Print Specific Site Data, for example guest 0, site 1 (N2, COM (D))
-    #print(structure.guest_molecules[1].guest_sites[1])
-
-    # You can also remove Guest or Sites in the input file and the print(structure) will only print the guest and sites you specified
+    # # Print Specific Site Data, for example guest 0, site 1 (N2, COM (D))
+    # print(structure.guest_molecules[1].guest_sites[1])
