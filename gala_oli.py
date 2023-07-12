@@ -320,6 +320,7 @@ class Site:
         self._maxima = None
         self._maxima_coordinates = None
         self._maxima_values = None
+        self._binding_sites = None
 
     def __str__(self):
         """
@@ -382,6 +383,15 @@ class Site:
             cart_coords) for cart_coords in self._maxima_coordinates]
 
         return fractional_coordinates
+
+    @property
+    def binding_sites(self):
+        if self._binding_sites is None:
+            self.calculate_binding_sites()
+        
+        binding_site_coords = self._binding_sites
+
+        return binding_site_coords
 
     def load_cube_data(self):
         """
@@ -469,6 +479,12 @@ Error Message: We apologize, but we couldn't locate any available unfolded or fo
         self._maxima_coordinates = [point[0] for point in pruned_peaks]
         self._maxima_values = [point[1] for point in pruned_peaks]
 
+    def calculate_binding_sites(self):
+
+        # This function should set the self._binding_sites attribute
+
+        raise NotImplementedError
+
 
 if __name__ == "__main__":
     GALA_MAIN = os.getcwd()
@@ -476,21 +492,24 @@ if __name__ == "__main__":
 
     # Print all output for specifed Guests and Sites
     structure = GuestStructure(gala_input)
-    print(structure)
+    
+    print(structure.guest_molecules[0].guest_sites[0].binding_sites)
+    
+    #print(structure)
 
     # Prints only maxima for guest N2 of Nx site
-    print(structure.guest_molecules[1].guest_sites[0].maxima)
+    #print(structure.guest_molecules[1].guest_sites[0].maxima)
 
     # Print IMolecule center of mass of guest 0 (CO2)
-    print(structure.guest_molecules[0].center_of_mass)
+    #print(structure.guest_molecules[0].center_of_mass)
 
     # Print IMolecule centered molecule of guest 0 (N2)
-    print(structure.guest_molecules[1].get_centered_molecule)
+    #print(structure.guest_molecules[1].get_centered_molecule)
 
     # Print Specific Site Data, for example guest 0, site 1 (CO2, Cx)
-    print(structure.guest_molecules[0].guest_sites[0])
+    #print(structure.guest_molecules[0].guest_sites[0])
 
     # Print Specific Site Data, for example guest 0, site 1 (N2, COM (D))
-    print(structure.guest_molecules[1].guest_sites[1])
+    #print(structure.guest_molecules[1].guest_sites[1])
 
     # You can also remove Guest or Sites in the input file and the print(structure) will only print the guest and sites you specified
