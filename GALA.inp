@@ -27,7 +27,7 @@ Authors ...
 >> FASTMC or RASPA? <<
 FASTMC
 >> Absolute path to directory <<
-/Users/oliviermarchand/Desktop/Python_Codes/Masters/GALA_v2/Jake/GALA-main/Oli_test
+/Users/oliviermarchand/Desktop/Python_Codes/Masters/GALA_v2/Jake/GALA-main/Oli_test/test_dir/Files
 ------------------------------------------------------------------------------------------
                                     GCMC Parameters
 >> Temperature (Kelvin) <<
@@ -60,8 +60,8 @@ T
     > Prob_Guest[X]_Site[Y].cube
         where X represent the Guest Molecular Formula ex. CO2, N2, CO
             and Y represent the specified sites (found in Field file) ex. Cx, Ox, Nx <<
->> Provice Guest Molecule Formula delimited by a space ex. CO2 N2 <<
+>> Provice Guest Molecule Formula delimited by a space ex. CO2 N2 << 
 CO2 N2
 >> Provide Sites delimited by a space and grouped by molecule ex. Cx,Ox Nx <<
-Cx,Ox Nx
+Cx,Ox Nx,COM
 ------------------------------------------------------------------------------------------
