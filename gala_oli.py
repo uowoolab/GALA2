@@ -2,8 +2,8 @@ import os
 import numpy as np
 from pymatgen.core import Element, IMolecule, Molecule
 from pymatgen.io.common import VolumetricData
-from scipy.ndimage.filters import gaussian_filter, maximum_filter
-from scipy.ndimage.morphology import generate_binary_structure, binary_erosion, iterate_structure
+from scipy.ndimage import gaussian_filter, maximum_filter
+from scipy.ndimage import generate_binary_structure, binary_erosion, iterate_structure
 
 
 class GalaInput:
@@ -589,7 +589,7 @@ Error Message: We apologize, but we couldn't locate any available unfolded or fo
 
 
 if __name__ == "__main__":
-    GALA_MAIN = '/Users/oliviermarchand/Desktop/Python_Codes/Masters/GALA_v2/Jake/GALA-main/Oli_test/test_dir/'
+    GALA_MAIN = os.getcwd()
     gala_input = GalaInput(GALA_MAIN)
 
     # Print all output for specifed Guests and Sites
