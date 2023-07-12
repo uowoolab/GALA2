@@ -27,7 +27,7 @@ Authors ...
 >> FASTMC or RASPA? <<
 FASTMC
 >> Absolute path to directory <<
-/Users/oliviermarchand/Desktop/Python_Codes/Masters/GALA_v2/Jake/GALA-main/Oli_test/test_dir/Files
+/home/jburner/GALA2/test_dir/Files
 ------------------------------------------------------------------------------------------
                                     GCMC Parameters
 >> Temperature (Kelvin) <<
