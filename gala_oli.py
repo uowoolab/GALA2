@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import os
 import numpy as np
 from pymatgen.core import Element, IMolecule, Molecule
@@ -594,10 +596,10 @@ if __name__ == "__main__":
 
     # Print all output for specifed Guests and Sites
     structure = GuestStructure(gala_input)
-    print(structure)
+    #print(structure)
 
     # # Prints only maxima for guest N2 of Nx site
-    # print(structure.guest_molecules[1].guest_sites[0].binding_sites)
+    #print(structure.guest_molecules[1].guest_sites[0].binding_sites)
 
     # # Print IMolecule center of mass of guest 0 (CO2)
     # print(structure.guest_molecules[0].center_of_mass)
