@@ -4,8 +4,14 @@ import os
 import numpy as np
 from pymatgen.core import Element, IMolecule, Molecule
 from pymatgen.io.common import VolumetricData
+from pymatgen.util.coord import all_distances
 from scipy.ndimage import gaussian_filter, maximum_filter
 from scipy.ndimage import generate_binary_structure, binary_erosion, iterate_structure
+from pymatgen.symmetry.analyzer import PointGroupAnalyzer as PGA
+from pymatgen.analysis.structure_matcher import StructureMatcher
+from itertools import combinations
+from pymatgen.util.coord import pbc_shortest_vectors
+from pymatgen.io.cif import CifWriter
 
 
 class GalaInput:
@@ -156,10 +162,10 @@ class GuestStructure:
         data = line.split()
         atom_label = data[0]
         atomic_weight = float(data[1])
-        x_coor = float(data[2])
-        y_coor = float(data[3])
-        z_coor = float(data[4])
-        charge = float(data[5])
+        x_coor = float(data[3])
+        y_coor = float(data[4])
+        z_coor = float(data[5])
+        charge = float(data[2])
         coordinate = (x_coor, y_coor, z_coor)
 
         if atomic_weight == 0.0:
@@ -384,9 +390,15 @@ class GuestMolecule(IMolecule):
             gala_instance (GalaInput): Instance of the GalaInput class.
         """
         super().__init__(species, coords)
+        self.pmg_molecule = IMolecule(species, coords)
         self.gala = gala_instance
         self.guest_sites = [Site(*site_data, parent_molecule=self)
                             for site_data in sites_data]
+        self._binding_sites = None
+        self._binding_site_maxima = None
+        self.point_group = PGA(self.pmg_molecule).get_pointgroup()
+        self.structure = self.get_structure()
+        self.structure_with_sites = None
 
     def __str__(self):
         """
@@ -399,7 +411,280 @@ class GuestMolecule(IMolecule):
             self.composition.reduced_formula,
             np.array(self.cart_coords),
             '\n'.join(f"Site {i+1}: {sites}" for i, sites in enumerate(map(str, self.guest_sites))))
+    
 
+    @property
+    def binding_sites(self):
+
+        if self._binding_sites == None:
+            self.calculate_binding_sites()
+
+        binding_site_coords = self._binding_sites
+        return binding_site_coords
+
+    def get_structure(self):
+
+        struct_list = []
+
+        for site in self.guest_sites:
+            struct_list.append(site.structure)
+
+        for pair in combinations(struct_list, 2):
+            if not StructureMatcher().fit(pair[0], pair[1]):
+                raise Exception("Structures in the cube files do not match!")
+        
+        return struct_list[0]
+
+    def calculate_binding_sites(self):
+
+        # TODO (Jake): reversible_guest calculation not robust -- should be based only on the given set of atoms
+        # not for the entire molecule (I think?)
+
+        # This function should set the self._binding_sites attribute
+        
+        #This works for iterating over atoms instead of sites
+        guest_atom_distances = []
+
+        # Consider only real atoms for determining site location
+        # i.e., ignore dummy sites
+        # First, need to determine which sites are closest to the COM. Place closest
+        # site first.
+        for idx, atom in enumerate(self.species):
+            dist = np.linalg.norm(self.center_of_mass - self.cart_coords[idx])
+            for site in self.guest_sites:
+                if str(atom) == str(site.element):
+                    guest_atom_distances.append((dist, idx, site.label))
+
+        guest_atom_distances.sort()        
+
+        # Now we are determining which sites to place at maxima in the distribution
+        # Need the pairwise distances between sites
+        if len(guest_atom_distances) == 1:
+            # Only one site, use it
+            distance_0_1 = None
+            distance_0_2 = None
+            distance_1_2 = None
+            linear_guest = True
+            reversible_guest = True
+        
+        elif len(guest_atom_distances) == 2:
+            distance_0_1 = np.linalg.norm(self.cart_coords[guest_atom_distances[0][1]] - 
+                                          self.cart_coords[guest_atom_distances[1][1]])
+            distance_0_2 = None
+            distance_1_2 = None
+            linear_guest = True
+            reversible_guest = True if len(PGA(self.pmg_molecule).get_equivalent_atoms()["eq_sets"][1]) == 1 else False
+        # If there are more than two atoms, take the closest three
+        else:
+            distance_0_1 = np.linalg.norm(self.cart_coords[guest_atom_distances[0][1]] - 
+                                          self.cart_coords[guest_atom_distances[1][1]])
+            distance_0_2 = np.linalg.norm(self.cart_coords[guest_atom_distances[0][1]] -
+                                          self.cart_coords[guest_atom_distances[2][1]])
+            distance_1_2 = np.linalg.norm(self.cart_coords[guest_atom_distances[1][1]] -
+                                          self.cart_coords[guest_atom_distances[2][1]])
+            linear_guest = True if str(self.point_group) == ("D*h" or "C*v") else False
+            # If the non-central atom has another equivalent atom
+            reversible_guest = True if len(PGA(self.pmg_molecule).get_equivalent_atoms()["eq_sets"][1]) == 2 else False
+
+        overlap_tol = 0.3
+
+        binding_sites = []
+
+        # Atom closest to the COM (e.g., Cx or Nx)
+        origin_key = guest_atom_distances[0][2]
+
+        # Keep list of sets of atoms that are already included
+        # so we don't use them twice
+        reversible_sets = []
+
+        #for origin_atom in sorted(guest_locations[origin_key],
+        #                          key=operator.itemgetter(1), reverse=True)
+        
+        # Working with a dict of {label: site}
+        sites = {x.label: x for x in self.guest_sites}
+        for central_max, central_max_value in zip(sites[origin_key].maxima_fractional_coordinates,
+                                                         sites[origin_key]._maxima_values):
+            # Single site guest, just place it at the maximum
+            if distance_0_1 is None:
+                binding_sites.append([(guest_atom_distances[0][1], central_max, central_max_value)])
+                continue
+
+            # If we have more than one atom to align
+            align_key = guest_atom_distances[1][2]
+            # Why are we choosing 999.9 as the comparison point lol?
+            align_closest = (999.9, None)
+            align_found = False
+            for align_atom_max, align_atom_max_value in zip(sites[align_key].maxima_fractional_coordinates,
+                                                            sites[align_key]._maxima_values):
+                if np.all(align_atom_max == central_max):
+                    continue
+                # Distance vector and distance between central site and alignment site
+                vector_0_1 = pbc_shortest_vectors(self.structure.lattice,
+                                                  central_max,
+                                                  align_atom_max)[0][0]
+                separation_0_1 = np.linalg.norm(vector_0_1)
+                # How much overlap is there between the sites according to plot vs expected
+                align_overlap = abs(separation_0_1 - distance_0_1)
+                if align_overlap < align_closest[0]:
+                    align_closest = (align_overlap, align_atom_max)
+                if align_overlap < overlap_tol:
+                    align_found = True
+
+                    # If we only have a two atom guest
+                    if distance_0_2 is None:
+                        if reversible_guest:
+                            # Check if this set of maxima was already found
+                            this_set = sorted([central_max.tolist(), align_atom_max.tolist()])
+                            if this_set in reversible_sets:
+                                continue
+                            else:
+                                # First tuple is the central atom idx, central_max, val
+                                # Second tuple is the other atom idx, distance vector from
+                                # the first site
+                                binding_sites.append([
+                                    (guest_atom_distances[0][1], central_max, central_max_value),
+                                    (guest_atom_distances[1][1], vector_0_1)
+                                ])
+                                reversible_sets.append(this_set)
+                                continue
+                        # If not reversible, then this orientation is necessarily unique -- keep it
+                        else:
+                            binding_sites.append([
+                                (guest_atom_distances[0][1], central_max, central_max_value),
+                                (guest_atom_distances[1][1], vector_0_1)
+                            ])
+                            continue
+
+                    # If we have three sites
+                    # IMPORTANT NOTE (Jake): I'm changing the first index to 2 instead of 1... otherwise it uses the same site
+                    # as the orient_key. This doesn't matter for things like CO2 or H2O, but very important for something like HCN (three unique atoms)
+                    # In the old code, it was [1][2] instead of [2][2], but I think this is a bug
+                    orient_key = guest_atom_distances[2][2]
+                    orient_closest = (999.9, None)
+                    found_site = False
+                    for orient_atom_max, orient_atom_max_value in zip(sites[orient_key].maxima_fractional_coordinates,
+                                                                      sites[orient_key]._maxima_values):
+                        vector_0_2 = pbc_shortest_vectors(self.structure.lattice,
+                                                          central_max,
+                                                          orient_atom_max)[0][0]
+                        separation_0_2 = np.linalg.norm(vector_0_2)
+                        vector_1_2 = pbc_shortest_vectors(self.structure.lattice,
+                                                          align_atom_max,
+                                                          orient_atom_max)[0][0]
+                        separation_1_2 = np.linalg.norm(vector_1_2)
+
+                        overlap_0_2 = abs(separation_0_2 - distance_0_2)
+                        overlap_1_2 = abs(separation_1_2 - distance_1_2)
+
+                        # This is the new closest orientation
+                        if overlap_0_2 + 0.5*overlap_1_2 < orient_closest[0]:
+                            orient_closest = (overlap_0_2 + 0.5*overlap_1_2, orient_atom_max)
+
+                        # If we find two aligning sites within tolerance (multiple of 2 since we are fitting two sites)
+                        if overlap_0_2 < overlap_tol and overlap_1_2 < 2*overlap_tol:
+                            found_site = True
+                            if reversible_guest:
+                                this_set = sorted([central_max.tolist(),
+                                                   align_atom_max.tolist(),
+                                                   orient_atom_max.tolist()])
+                                if this_set in reversible_sets:
+                                    continue
+                                elif linear_guest:
+                                    # Just add the two sites (no need for angular alignment)
+                                    binding_sites.append([
+                                        (guest_atom_distances[0][1],
+                                         central_max,
+                                         central_max_value),
+                                        (guest_atom_distances[1][1], vector_0_1)])
+                                    reversible_sets.append(this_set)
+                                # If not linear, need to add all three site locations
+                                else:
+                                    binding_sites.append([
+                                        (guest_atom_distances[0][1],
+                                         central_max,
+                                         central_max_value),
+                                        (guest_atom_distances[1][1], vector_0_1),
+                                        # NOTE: Also changed indexing here... (Jake)
+                                        (guest_atom_distances[2][1], vector_0_2)])
+                            elif linear_guest:
+                                # Just add the two sites
+                                binding_sites.append([
+                                    (guest_atom_distances[0][1],
+                                        central_max,
+                                        central_max_value),
+                                    (guest_atom_distances[1][1], vector_0_1)])
+                            else:
+                                # Add all three sites
+                                binding_sites.append([
+                                    (guest_atom_distances[0][1],
+                                     central_max,
+                                     central_max_value),
+                                    (guest_atom_distances[1][1], vector_0_1),
+                                    # NOTE (Jake): Also changed indexing here
+                                    (guest_atom_distances[2][1], vector_0_2)])
+
+                    # If still no site, do the best we can
+                    if not found_site:
+                        if linear_guest:
+                            # Don't care about reversiblity since no third site found
+                            # but can still make the guest with just two sites
+                            binding_sites.append([(guest_atom_distances[0][1],
+                                                   central_max,
+                                                   central_max_value),
+                                                  (guest_atom_distances[1][1],
+                                                   vector_0_1)])
+            else:
+                if distance_0_2 is None and align_closest[0] > distance_0_1:
+                    # Very isolated atom, not within 2 tol dists of any others
+                    # treat as isolated point atom and still make a guest
+                    binding_sites.append([(guest_atom_distances[0][1],
+                                           central_max,
+                                           central_max_value)])
+
+        # Need a more robust implmentation of this...
+        # (e.g., aligned_to function in old Guest.py class)
+
+        clean_binding_sites = []
+        binding_site_maxima = []
+
+        for binding_site in binding_sites:
+            for n, atom in enumerate(binding_site):
+                if n == 0:
+                    central_element = str(self.species[atom[0]])
+                    max_value = atom[2]
+                    central_coords = atom[1]
+                    if len(guest_atom_distances) == 1:
+                        clean_binding_sites.append([central_element, central_coords])
+                        binding_site_maxima.append(max_value)
+                if n == 1:
+                    dist_vector = atom[1]
+                    align_coords = self.structure.lattice.get_fractional_coords(self.structure.lattice.get_cartesian_coords(central_coords) + dist_vector)
+                    align_element = str(self.species[atom[0]])
+                    if len(guest_atom_distances) == 2:
+                        clean_binding_sites.append([[central_element, align_element], [central_coords, align_coords]])
+                    if len(guest_atom_distances) == 3 and linear_guest and reversible_guest:
+                        orient_coords = self.structure.lattice.get_fractional_coords(self.structure.lattice.get_cartesian_coords(central_coords) - dist_vector)
+                        orient_element = align_element
+                        clean_binding_sites.append([[central_element, align_element, orient_element], [central_coords, align_coords, orient_coords]])
+                if n == 2:
+                    dist_vector = atom[1]
+                    orient_coords = self.structure.lattice.get_fractional_coords(self.structure.lattice.get_cartesian_coords(central_coords) + dist_vector)
+                    orient_element = str(self.species[atom[0]])
+                    clean_binding_sites.append([[central_element, align_element, orient_element], [central_coords, align_coords, orient_coords]])
+
+        self._binding_sites = clean_binding_sites
+        self._binding_site_maxima = binding_site_maxima
+
+    def write_binding_sites(self, filename):
+        if self._binding_sites is None:
+            self.calculate_binding_sites()
+        structure_with_sites = self.structure.copy()
+        for binding_site in self._binding_sites:
+            for atom, coord in zip(binding_site[0], binding_site[1]):
+                structure_with_sites.append(species=atom,
+                                            coords=coord)
+        self.structure_with_sites = structure_with_sites
+        CifWriter(structure_with_sites).write_file(filename)
 
 class Site:
     def __init__(self, label, element, coords, charge, parent_molecule):
@@ -409,7 +694,7 @@ class Site:
         Args:
             label (str): Label of the site.
             element (str): Chemical element of the site.
-            coords (tuple): Coordinates of the site.
+            coords (tuple): Cartesian coordinates of the site.
             charge (float): Charge of the site.
             parent_molecule (GuestMolecule): Parent molecule of the site.
         """
@@ -419,12 +704,12 @@ class Site:
         self.charge = charge
         self.parent_molecule = parent_molecule
         self.gala = parent_molecule.gala
+        self._structure = None
         self.cube = None
         self._datapoints = None
         self._maxima = None
         self._maxima_coordinates = None
         self._maxima_values = None
-        self._binding_sites = None
 
     def __str__(self):
         """
@@ -452,11 +737,7 @@ class Site:
 
         maxima_coords, maxima_values = self._maxima_coordinates, self._maxima_values
 
-        if maxima_coords is not None:
-            fractional_coords = self.maxima_fractional_coordinates
-        else:
-            raise Exception(
-                'Maxima coordinates not calculated. Run calculate_maxima first.')
+        fractional_coords = self.maxima_fractional_coordinates
 
         maxima_info = "Maxima:\n"
         for i, (coords, value) in enumerate(zip(maxima_coords, maxima_values), start=1):
@@ -475,11 +756,10 @@ class Site:
             list: Fractional coordinates of the maxima.
         """
         if self._maxima_coordinates is None:
-            raise Exception(
-                'Maxima coordinates not calculated. Run calculate_maxima first.')
+            self.calculate_maxima()
 
         if self.cube is None:
-            raise Exception('Cube data not loaded. Run load_cube_data first.')
+            self.load_cube_data()
 
         lattice = self.cube.structure.lattice
 
@@ -487,15 +767,6 @@ class Site:
             cart_coords) for cart_coords in self._maxima_coordinates]
 
         return fractional_coordinates
-
-    @property
-    def binding_sites(self):
-        if self._binding_sites is None:
-            self.calculate_binding_sites()
-
-        binding_site_coords = self._binding_sites
-
-        return binding_site_coords
 
     def load_cube_data(self):
         """
@@ -533,13 +804,20 @@ class Site:
             raise FileNotFoundError('''Error Code: UNAVAILABLE_CUBE_FILE
 Error Description: Unavailable Probability File
 Error Message: We apologize, but we couldn't locate any available unfolded or folded probability file required for this operation.\n''')
+                                    
+    @property
+    def structure(self):
+        if self.cube is None:
+            self.load_cube_data()
+        self._structure = self.cube.structure
+        return self._structure
 
     def calculate_maxima(self):
         """
         Calculate the maxima for the site.
         """
         if self._datapoints is None or self.cube is None:
-            raise Exception('Data not loaded. Run load_cube_data first.')
+            self.load_cube_data()
 
         original_data = self._datapoints
         temp_data = original_data
@@ -576,18 +854,13 @@ Error Message: We apologize, but we couldn't locate any available unfolded or fo
 
         pruned_peaks = []
         maximum_value = max([peak[1] for peak in cartesian_peaks])
-        for point in sorted(cartesian_peaks, key=lambda k: -k[1], reverse=True):
+        for point in sorted(cartesian_peaks, key=lambda k: -k[1], reverse=False):
             if point[1] > self.gala.Cutoff * maximum_value:
                 pruned_peaks.append(point)
 
         self._maxima_coordinates = [point[0] for point in pruned_peaks]
         self._maxima_values = [point[1] for point in pruned_peaks]
 
-    def calculate_binding_sites(self):
-
-        # This function should set the self._binding_sites attribute
-
-        raise NotImplementedError
 
 
 if __name__ == "__main__":
@@ -599,7 +872,8 @@ if __name__ == "__main__":
     #print(structure)
 
     # # Prints only maxima for guest N2 of Nx site
-    #print(structure.guest_molecules[1].guest_sites[0].binding_sites)
+    structure.guest_molecules[0].write_binding_sites(filename="CO2_binding_sites.cif")
+    structure.guest_molecules[1].write_binding_sites(filename="N2_binding_sites.cif")
 
     # # Print IMolecule center of mass of guest 0 (CO2)
     # print(structure.guest_molecules[0].center_of_mass)
