@@ -65,6 +65,18 @@ class GuestStructure:
                     species=element, coords=coordinate, sites_data=molecule_site_data, gala_instance=self.gala)
                 self.guest_molecules.append(guest_molecule)
 
+        elif self.method == 'RASPA':
+            guests_chemical_structure, guests_atoms_coordinates, guest_sites_labels, site_data = self.parse_raspa()
+            self.guest_molecules = []
+
+            for element, coordinate, molecule_site_data in zip(guests_chemical_structure, guests_atoms_coordinates, site_data):
+                guest_molecule = GuestMolecule(
+                    species=element, coords=coordinate, sites_data=molecule_site_data, gala_instance=self.gala)
+                self.guest_molecules.append(guest_molecule)
+
+        else:
+            raise ValueError(f"Unknown method: {self.method}")
+
     def __str__(self):
         """
         Return a string representation of the GuestStructure object.
@@ -150,10 +162,10 @@ class GuestStructure:
         data = line.split()
         atom_label = data[0]
         atomic_weight = float(data[1])
+        charge = float(data[2])
         x_coor = float(data[3])
         y_coor = float(data[4])
         z_coor = float(data[5])
-        charge = float(data[2])
         coordinate = (x_coor, y_coor, z_coor)
 
         if atomic_weight == 0.0:
@@ -271,6 +283,99 @@ class GuestStructure:
             grouped_site_data[label]['charges'].append(data[3])
         return [[label, data['element'], data['coordinates'], data['charges']] for label, data in grouped_site_data.items()]
 
+    def parse_raspa(self):
+        """
+        Parse the RASPA simulation data, pseudo atoms data, and molecule data.
+
+        Returns:
+            tuple: Tuple containing parsed guest information (elements, coordinates, species, site_data).
+        """
+        # Use the appropriate path to your RASPA files
+        simulation_data = GuestStructure.extract_simulation_data(
+            os.path.join(self.gala.Directory, "simulation.input"))
+        pseudo_atoms_data = GuestStructure.extract_pseudo_atoms_data(
+            os.path.join(self.gala.Directory, "pseudo_atoms.def"))
+        guest_dict = GuestStructure.extract_molecule_data(self.gala.Directory,
+                                                          simulation_data, pseudo_atoms_data)
+
+        guests_reduced, elements, dummy_atoms = self.post_process_guests(
+            guest_dict)
+
+        selected_guests = self.select_guests(
+            guest_dict, guests_reduced, elements, dummy_atoms)
+
+        return selected_guests
+
+    def extract_simulation_data(filename):
+        molecule_names = []
+        with open(filename, 'r') as file:
+            for line in file:
+                if line.startswith('Component'):
+                    molecule_name = line.split()[-1]
+                    molecule_names.append([molecule_name])
+        return molecule_names
+
+    def extract_pseudo_atoms_data(filename):
+        pseudo_atoms_data = {}
+        with open(filename, 'r') as file:
+            for line in file:
+                if line.startswith("#type"):
+                    break
+            for line in file:
+                parts = line.split()
+                if not parts:
+                    continue
+                atom_type = parts[0]
+                chem = parts[3] if parts[3] != '-' else 'D'
+                charge = float(parts[6])
+                pseudo_atoms_data[atom_type] = {'chem': chem, 'charge': charge}
+        return pseudo_atoms_data
+
+    def extract_molecule_data(dir, molecule_names, pseudo_atoms_data):
+        result = []
+
+        for molecule_name in molecule_names:
+            molecule_data = {
+                'valid_labels': [],
+                'coordinates': [],
+                'species': [],
+                'site_data': []
+            }
+
+            molecule_file = f'{dir}/{molecule_name[0]}.def'
+            atomic_data = []
+            with open(molecule_file, 'r') as file:
+                copy = False
+                for line in file:
+                    if line.strip() == '# atomic positions':
+                        copy = True
+                    elif line.strip() == '# Chiral centers Bond  BondDipoles Bend  UrayBradley InvBend  Torsion Imp. Torsion Bond/Bond Stretch/Bend Bend/Bend Stretch/Torsion Bend/Torsion IntraVDW IntraCoulomb':
+                        copy = False
+                    elif copy:
+                        atomic_data.append(line.split())
+
+            # Construct the required lists from the atomic data
+            species = [data[1] for data in atomic_data]
+            elements = [pseudo_atoms_data[specie]['chem']
+                        for specie in species if pseudo_atoms_data[specie]['chem'] != 'D']
+            coordinates = [(float(data[2]), float(data[3]), float(data[4]))
+                           for data in atomic_data if pseudo_atoms_data[data[1]]['chem'] != 'D']
+            charge = [pseudo_atoms_data[specie]['charge']
+                      for specie in species]
+            site_data = [[specie, pseudo_atoms_data[specie]['chem'], (float(data[2]), float(data[3]), float(
+                data[4])), charge] for data, specie, charge in zip(atomic_data, species, charge)]
+
+            # Append to molecule_data
+            molecule_data['valid_labels'].extend(elements)
+            molecule_data['coordinates'].extend(coordinates)
+            molecule_data['species'].extend(species)
+            molecule_data['site_data'].extend(site_data)
+
+            # Append molecule_data to result
+            result.append(molecule_data)
+
+        return result
+
 
 class GuestMolecule(IMolecule):
     def __init__(self, species, coords, sites_data=None, gala_instance=None, charge=None, spin_multiplicity=None, site_properties=None, charge_spin_check=None):
@@ -292,6 +397,7 @@ class GuestMolecule(IMolecule):
         self._binding_sites = None
         self._binding_site_maxima = None
         self.structure_with_sites = None
+        self._structure_match = None
 
     def __str__(self):
         """
@@ -320,27 +426,38 @@ class GuestMolecule(IMolecule):
         binding_site_coords = self._binding_sites
         return binding_site_coords
 
-    def get_structure(self):
+    @property
+    def get_cube_structure(self):
         """
-        Retrieve the structure of the first guest site from the list of guest sites. It compares the structures of all guest
-        sites to ensure that they match, and raises an exception if they don't.
+        Retrieve the structure of the first guest site from the list of guest sites. It ensures that all structures match.
 
         Returns:
             Structure: The structure object.
+        """
+        if not self.guest_sites:
+            raise Exception("No guest sites found")
+
+        if self._structure_match is None:
+            self.check_structure_match()
+
+        return self.guest_sites[0].structure
+
+    def check_structure_match(self):
+        """
+        Compare the structures of all guest sites to ensure that they match, and raises an exception if they don't.
 
         Raises:
             Exception: If structures in the cube files do not match.
         """
-        struct_list = []
+        first_structure = self.guest_sites[0].structure
+        matcher = StructureMatcher()
 
-        for site in self.guest_sites:
-            struct_list.append(site.structure)
-
-        for pair in combinations(struct_list, 2):
-            if not StructureMatcher().fit(pair[0], pair[1]):
+        for site in self.guest_sites[1:]:
+            if not matcher.fit(first_structure, site.structure):
+                self._structure_match = False
                 raise Exception("Structures in the cube files do not match!")
 
-        return struct_list[0]
+        self._structure_match = True
 
     def calculate_binding_sites(self):
         """
@@ -350,6 +467,8 @@ class GuestMolecule(IMolecule):
         Finally, it determines the binding sites by considering the distances and overlaps between atoms and stores the result
         in the _binding_sites attribute.
         """
+
+        get_struct = self.get_cube_structure
 
         guest_atom_distances = []
 
@@ -404,10 +523,10 @@ class GuestMolecule(IMolecule):
                 if np.all(align_atom_max == central_max):
                     continue
                 # Distance vector and distance between central site and alignment site
-                vector_0_1 = pbc_shortest_vectors((self.get_structure()).lattice,
-                                                  (self.get_structure()).lattice.get_fractional_coords(
+                vector_0_1 = pbc_shortest_vectors(get_struct.lattice,
+                                                  get_struct.lattice.get_fractional_coords(
                                                       central_max),
-                                                  (self.get_structure()).lattice.get_fractional_coords(align_atom_max))[0][0]
+                                                  get_struct.lattice.get_fractional_coords(align_atom_max))[0][0]
 
                 separation_0_1 = np.linalg.norm(vector_0_1)
 
@@ -441,15 +560,15 @@ class GuestMolecule(IMolecule):
                     for orient_atom_max, orient_atom_max_value in zip(sites[orient_key].maxima_cartesian_coordinates,
                                                                       sites[orient_key]._maxima_values):
 
-                        vector_0_2 = pbc_shortest_vectors((self.get_structure()).lattice,
-                                                          (self.get_structure()).lattice.get_fractional_coords(
+                        vector_0_2 = pbc_shortest_vectors(get_struct.lattice,
+                                                          get_struct.lattice.get_fractional_coords(
                                                               central_max),
-                                                          (self.get_structure()).lattice.get_fractional_coords(orient_atom_max))[0][0]
+                                                          get_struct.lattice.get_fractional_coords(orient_atom_max))[0][0]
                         separation_0_2 = np.linalg.norm(vector_0_2)
-                        vector_1_2 = pbc_shortest_vectors((self.get_structure()).lattice,
-                                                          (self.get_structure()).lattice.get_fractional_coords(
+                        vector_1_2 = pbc_shortest_vectors(get_struct.lattice,
+                                                          get_struct.lattice.get_fractional_coords(
                                                               align_atom_max),
-                                                          (self.get_structure()).lattice.get_fractional_coords(orient_atom_max))[0][0]
+                                                          get_struct.lattice.get_fractional_coords(orient_atom_max))[0][0]
 
                         separation_1_2 = np.linalg.norm(vector_1_2)
 
@@ -512,6 +631,8 @@ class GuestMolecule(IMolecule):
             list: A list of fractional coordinates representing the aligned and oriented guest positions.
         """
 
+        get_struct = self.get_cube_structure
+
         target_idx, target = target[0], target[1]
         target_guest = self.cart_coords[target_idx]
         guest_position = [[x - y for x, y in zip(atom, target_guest)]
@@ -541,7 +662,7 @@ class GuestMolecule(IMolecule):
         guest_position = [[x + y for x, y in zip(atom, target)]
                           for atom in guest_position]
 
-        return [(self.get_structure()).lattice.get_fractional_coords(x) for x in guest_position]
+        return [get_struct.lattice.get_fractional_coords(x) for x in guest_position]
 
     def matrix_rotate(self, source, target):
         """
@@ -559,7 +680,6 @@ class GuestMolecule(IMolecule):
         v = np.cross(source, target)
         vlen = np.dot(v, v)
         if vlen == 0.0:
-
             return np.identity(3)
         c = np.dot(source, target)
         h = (1 - c)/vlen
@@ -579,7 +699,7 @@ class GuestMolecule(IMolecule):
         """
         if self._binding_sites is None:
             self.calculate_binding_sites()
-        structure_with_sites = self.get_structure().copy()
+        structure_with_sites = self.get_cube_structure.copy()
         for binding_site in self._binding_sites:
             for atom, coord in zip(binding_site[0], binding_site[1]):
                 structure_with_sites.append(species=atom,
@@ -761,7 +881,7 @@ class Guest_Sites:
             if self.gala.Method == 'FASTMC':
                 self.load_cube_data_fastmc()
             else:
-                self.load_cube_data_raspa()
+                self.load_cube_data_raspa(atom_at_center_of_mass=False)
         self._structure = self.cube.structure
         return self._structure
 
@@ -791,7 +911,7 @@ class Guest_Sites:
                 self.cube = VolumetricData.from_cube(probability_file_unfolded)
                 localdata = self.cube.data['total']
                 localdata = localdata / np.sum(localdata)
-                localdata = localdata / float(fold[0]*fold[1]*fold[3])
+                localdata = localdata / float(fold[0]*fold[1]*fold[2])
                 self._datapoints = localdata
             except Exception as e:
                 raise Exception(
@@ -982,5 +1102,5 @@ if __name__ == "__main__":
     # --- --- ---
     end_time = time.time()
     elapsed_time = end_time - start_time
-    print(f"Elapsed time: {elapsed_time:.2f} seconds")
+    print(f"Time before completion: {elapsed_time:.2f} seconds")
     # --- --- ---
