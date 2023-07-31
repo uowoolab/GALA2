@@ -1,0 +1,229 @@
+
+                    FastMC version 1.4.0
+
+
+Started :          09   June      2021   16:13 -0400 GMT
+
+Running on    1 nodes
+
+
+energy units = kcal
+
+number of molecular types:      3
+
+  molecular species type:      1
+  name of species:   carbon dioxide for adsorption in zeolite
+  number of molecules:      0
+  number of atoms:      3
+  atomic characteristics:
+                      site     name          mass        charge    repeat    freeze
+                         1     Cx          12.01070     0.65120         1         0
+                         2     Ox          15.99940    -0.32560         1         0
+                         3     Ox          15.99940    -0.32560         1         0
+
+  initial guest pos:
+                     site:  Cx           0.000000    0.000000    0.000000
+                     site:  Ox           1.149000    0.000000    0.000000
+                     site:  Ox          -1.149000    0.000000    0.000000
+
+  molecular species type:      2
+  name of species:   three site nitrogen based on trappe: htt
+  number of molecules:      0
+  number of atoms:      3
+  atomic characteristics:
+                      site     name          mass        charge    repeat    freeze
+                         1     Nx          14.00670    -0.48200         1         0
+                         2     Nx          14.00670    -0.48200         1         0
+                         3     COM          0.00000     0.96400         1         0
+
+  initial guest pos:
+                     site:  Nx          -0.550000    0.000000    0.000000
+                     site:  Nx           0.550000    0.000000    0.000000
+                     site:  COM          0.000000    0.000000    0.000000
+
+  molecular species type:      3
+  name of species:   framework                               
+  number of molecules:     36
+  number of atoms:     44
+  atomic characteristics:
+                      site     name          mass        charge    repeat    freeze
+                         1     Zn          65.38000     0.68714         1         1
+                         2     Zn          65.38000     0.68715         1         1
+                         3     Zn          65.38000     0.68715         1         1
+                         4     Zn          65.38000     0.68714         1         1
+                         5     N           14.00670    -0.27848         1         1
+                         6     N           14.00670    -0.27851         1         1
+                         7     N           14.00670    -0.27851         1         1
+                         8     N           14.00670    -0.27847         1         1
+                         9     N           14.00670    -0.10487         1         1
+                        10     N           14.00670    -0.10483         1         1
+                        11     N           14.00670    -0.10483         1         1
+                        12     N           14.00670    -0.10487         1         1
+                        13     N           14.00670    -0.33557         1         1
+                        14     N           14.00670    -0.33557         1         1
+                        15     N           14.00670    -0.33558         1         1
+                        16     N           14.00670    -0.33556         1         1
+                        17     O           15.99940    -0.55677         1         1
+                        18     O           15.99940    -0.55675         1         1
+                        19     O           15.99940    -0.55675         1         1
+                        20     O           15.99940    -0.55677         1         1
+                        21     O           15.99940    -0.51882         1         1
+                        22     O           15.99940    -0.51881         1         1
+                        23     O           15.99940    -0.51882         1         1
+                        24     O           15.99940    -0.51882         1         1
+                        25     C           12.01070     0.19037         1         1
+                        26     C           12.01070     0.19040         1         1
+                        27     C           12.01070     0.19040         1         1
+                        28     C           12.01070     0.19037         1         1
+                        29     H            1.00794     0.09334         1         1
+                        30     H            1.00794     0.09333         1         1
+                        31     H            1.00794     0.09333         1         1
+                        32     H            1.00794     0.09334         1         1
+                        33     C           12.01070     0.16283         1         1
+                        34     C           12.01070     0.16281         1         1
+                        35     C           12.01070     0.16282         1         1
+                        36     C           12.01070     0.16282         1         1
+                        37     H            1.00794     0.11265         1         1
+                        38     H            1.00794     0.11266         1         1
+                        39     H            1.00794     0.11266         1         1
+                        40     H            1.00794     0.11265         1         1
+                        41     C           12.01070     0.54816         1         1
+                        42     C           12.01070     0.54813         1         1
+                        43     C           12.01070     0.54814         1         1
+                        44     C           12.01070     0.54817         1         1
+
+simulation cell vectors:
+                        35.655200    0.000000    0.000000
+                         0.000000   29.080500    0.000000
+                       -12.425127    0.000000   25.594223
+
+system volume:
+                          26537.9085585    
+
+ Probability grid size:     240     195     192
+
+Guest    1 pressure:         0.0200 bar
+
+Guest    2 pressure:         0.0800 bar
+
+writing to numguests.out every   1000 gcmc steps.
+
+*** warning the averaging window was not specified in the CONTROL file, defaulting to     100000 steps per window.
+
+No move frequencies specified, defaulting to Grand Canonical
+Normalised move frequencies:
+            guest:   1
+        insertion:  0.333         deletion:  0.333     displacement:  0.333
+          jumping:  0.000          flexing:  0.000         swapping:  0.000
+      translation:  0.000         rotation:  0.000      multi jumps:  0.000
+Target acceptance ratios:
+     displacement:  0.500      translation:  0.500         rotation:  0.500
+
+
+No move frequencies specified, defaulting to Grand Canonical
+Normalised move frequencies:
+            guest:   2
+        insertion:  0.333         deletion:  0.333     displacement:  0.333
+          jumping:  0.000          flexing:  0.000         swapping:  0.000
+      translation:  0.000         rotation:  0.000      multi jumps:  0.000
+Target acceptance ratios:
+     displacement:  0.500      translation:  0.500         rotation:  0.500
+
+
+i,j,k,l values for duni()  169  135  163  156
+
+             Initial guest energy :              0.000000
+             van der Waals energy :              0.000000
+             Electrostatic energy :              0.000000
+        Energy reported by DL_POLY:         -11190.606165
+
+time elapsed since job start =           1.208 seconds
+
+Completed at least   12000000 equlibration steps
+Starting production at   12000000
+
+***************************************************************************
+   Data reported from node   0
+***************************************************************************
+
+     guest  1: carbon dioxide for adsorption in zeolite
+
+                                                            <N>:         32.484008079
+                                                            <E>:       -269.880270862
+                                                          <E*N>:      -8930.927679362
+                                                          <N*N>:       1075.382009051
+                                                          <E*E>:      74234.188442316
+                                                     Multiplier:             32000001
+                        Isosteric heat of adsorption (kcal/mol):          8.719325698
+                                           Isosteric heat error:          0.036069274
+                                 Heat capacity, Cv (kcal/mol/K):          0.014394334
+                                            Heat capacity error:          0.002708679
+
+     guest  2: three site nitrogen based on trappe: htt
+
+                                                            <N>:          1.151643839
+                                                            <E>:          5.988758912
+                                                          <E*N>:          3.523378724
+                                                          <N*N>:          2.079070185
+                                                          <E*E>:         99.298261397
+                                                     Multiplier:             32000001
+                        Isosteric heat of adsorption (kcal/mol):          5.063652133
+                                           Isosteric heat error:          0.022352931
+                                 Heat capacity, Cv (kcal/mol/K):          0.248895647
+                                            Heat capacity error:          0.075813307
+
+     guest  1 over guest  2
+
+                                                            <S>:         28.475060887
+
+
+time elapsed for  44000000  gcmc steps :     15728.570 seconds
+
+       total accepted steps :   7027168
+
+       insertion ratio:     0.013093264
+
+        deletion ratio:     0.017716821
+
+    displacement ratio:     0.499982286
+
+final stats for guest  1   carbon dioxide for adsorption in zeolite
+
+
+                               <N>:       32.484008 +/-        2.768
+                               <E>:     -269.880271 +/-       24.420
+                             <E*N>:    -8930.927679 +/-     1531.654
+                             <N*N>:     1075.382009 +/-      180.856
+                             <E*E>:    74234.188442 +/-    13230.467
+
+
+                                  average number of guests:       32.484008
+                                            standard error:        2.768423
+                   Isosteric heat of adsorption (kcal/mol):        8.719326
+                                      Isosteric heat error:        0.036069
+                            Heat capacity, Cv (kcal/mol/K):        0.014394
+                                       Heat capacity error:        0.002709
+                                       Total steps counted:        32000001
+
+
+final stats for guest  2   three site nitrogen based on trappe: htt
+
+
+                               <N>:        1.151644 +/-        0.088
+                               <E>:        5.988759 +/-        6.947
+                             <E*N>:        3.523379 +/-        7.994
+                             <N*N>:        2.079070 +/-        0.292
+                             <E*E>:       99.298261 +/-       95.062
+
+
+                                  average number of guests:        1.151644
+                                            standard error:        0.088151
+                   Isosteric heat of adsorption (kcal/mol):        5.063652
+                                      Isosteric heat error:        0.022353
+                            Heat capacity, Cv (kcal/mol/K):        0.248896
+                                       Heat capacity error:        0.075813
+                                       Total steps counted:        32000001
+
+
+selectivity stats for guest  1/ 2
+                                <S>:      28.475061  +/-       4.093

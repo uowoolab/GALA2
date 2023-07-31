@@ -1,0 +1,21 @@
+Job ID 638667
+running on: e1 /local_scratch/jburner/638667
+sending incremental file list
+./
+CONFIG
+FIELD
+OUTPUT
+jobcontrol.in
+prob_guest01_prob_01.cube
+prob_guest01_prob_02.cube
+prob_guest02_prob_01.cube
+prob_guest02_prob_02.cube
+branch01/
+branch01/REVCON
+branch01/REVIVE
+branch01/numguests01.out
+branch01/numguests02.out
+branch01/runningstats.out
+
+sent 553,055,953 bytes  received 394 bytes  73,740,846.27 bytes/sec
+total size is 552,920,426  speedup is 1.00
