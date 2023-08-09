@@ -492,7 +492,7 @@ class GuestMolecule(IMolecule):
         # Replace old index with new one based on sorted order
         guest_atom_distances = [(dist, idx_new, atom) for idx_new,
                                 (dist, idx_old, atom) in enumerate(guest_atom_distances)]
-        print(guest_atom_distances)
+
         # Calculate distance between each pair of atoms
         distances = {}
         for (dist1, idx1, atom1), (dist2, idx2, atom2) in combinations(guest_atom_distances, 2):
@@ -613,7 +613,6 @@ class GuestMolecule(IMolecule):
                         binding_sites.append(
                             [(guest_atom_distances[0][1], central_max, central_max_value)])
 
-        print('new gala - binding sites:\n', binding_sites)
         binding_sites = self.remove_duplicates_and_inverses(binding_sites)
 
         for site in binding_sites:
