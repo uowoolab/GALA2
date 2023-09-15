@@ -45,6 +45,18 @@ import time
 # TODO Expend on guest compatibility
 # TODO TEST with different input files, guests, etc
 
+# TODO No-folded FIELD convert to folded FIELD file, if they want to fold they will require to specify the grid factor
+
+# ---
+# TODO for Jake
+# TODO Use cutoff to find minimal grid factor and use that to make supercell for dl poly
+# TODO Grid factor should be computed for the cutoff they want
+# TODO Reorder binding sites from highest occupencies to lowest in xyz
+# TODO normalize each occupencies to 1 so that it is a % of the total occupencies
+# TODO Add executable absolute path to DL POLY in .inp file 
+# TODO Check to add dl poly output to see if something went wrong
+# TODO Write error instead of print, check if first dl poly ran, (STASIS) if not kill job
+
 class GalaInput:
     def __init__(self, dir):
         """
@@ -561,8 +573,8 @@ class GuestMolecule(Molecule):
                         binding_sites.append(
                             [(guest_atom_distances[0][1], central_max, central_max_value)])
 
-        # binding_sites = self.remove_duplicates_and_inverses(binding_sites)
-
+        binding_sites = self.remove_duplicates_and_inverses(binding_sites)
+        
         for site in binding_sites:
             occupancy = site[0][2]
             occupancies.append(occupancy)
@@ -1385,6 +1397,9 @@ class GuestMolecule(Molecule):
 
 
 class GuestSites:
+
+    all_structure = []
+
     def __init__(self, label, element, coords, charge, parent_molecule):
         """
         Initialize the Guest_Sites class with the specified label, element, coordinates, charge, and parent molecule.
@@ -1402,12 +1417,14 @@ class GuestSites:
         self.charge = charge
         self.parent_molecule = parent_molecule
         self.gala = parent_molecule.gala
+        GuestSites.all_structure.append(self)
         self._structure = None
         self.cube = None
         self._datapoints = None
         self._maxima = None
         self._maxima_coordinates = None
         self._maxima_values = None
+
 
     def __str__(self):
         """
@@ -1438,8 +1455,10 @@ class GuestSites:
                 self.calculate_maxima()
 
             maxima_coords, maxima_values = self._maxima_coordinates, self._maxima_values
-
-            if maxima_coords is not None:
+            
+            if maxima_coords == ['N/A']:
+                fractional_coords = ['N/A']
+            elif maxima_coords is not None:
                 fractional_coords = self.maxima_fractional_coordinates
             else:
                 raise Exception(
@@ -1447,8 +1466,11 @@ class GuestSites:
 
             maxima_info = "Maxima:\n"
             for i, (coords, value) in enumerate(zip(maxima_coords, maxima_values), start=1):
-                maxima_info += f"\tMaxima {i}: Value: {value}\n\t\t  Cartesian Coordinates: {list(coords)}\n\t\t  Fractional Coordinates: {list(fractional_coords[i-1])}\n"
-
+                if coords != 'N/A':
+                    maxima_info += f"\tMaxima {i}: Value: {value}\n\t\t  Cartesian Coordinates: {list(coords)}\n\t\t  Fractional Coordinates: {list(fractional_coords[i-1])}\n"
+                else: 
+                    maxima_info += f"\tMaxima {i}: Value: {value}\n\t\t  Cartesian Coordinates: {coords}\n\t\t  Fractional Coordinates: {fractional_coords[i-1]}\n"
+            
             return maxima_info
 
         else:
@@ -1509,7 +1531,12 @@ class GuestSites:
         if self.cube is None:
             if self.gala.Method == 'FASTMC':
                 self.load_cube_data_fastmc()
-        self._structure = self.cube.structure
+        if self._maxima_coordinates == ['N/A']:
+            if GuestSites.all_structure:
+                self._structure = GuestSites.all_structure[0].cube.structure
+        else:
+            self._structure = self.cube.structure
+
         return self._structure
 
     def load_cube_data_fastmc(self):
@@ -1519,6 +1546,7 @@ class GuestSites:
         dir = self.gala.Directory
         guests = self.parent_molecule.composition.reduced_formula
         sites = self.label
+        sites_element = self.element
         fold = self.gala.Grid_Factor
 
         probability_file = f'{dir}/Prob_Guest_{guests}_Site_{sites}_folded.cube'
@@ -1532,7 +1560,7 @@ class GuestSites:
                 self._datapoints = localdata
             except Exception as e:
                 raise Exception(f'Error loading cube file: {probability_file}')
-
+            
         elif not os.path.exists(probability_file) and os.path.exists(probability_file_unfolded):
             try:
                 self.cube = VolumetricData.from_cube(probability_file_unfolded)
@@ -1543,6 +1571,9 @@ class GuestSites:
             except Exception as e:
                 raise Exception(
                     f'Error loading cube file: {probability_file_unfolded}')
+        
+        elif not os.path.exists(probability_file) and sites_element == 'D':
+            self._maxima_coordinates = ['N/A']; self._maxima_values = ['N/A']
 
         else:
             raise FileNotFoundError('''Error Code: UNAVAILABLE_CUBE_FILE
