@@ -1215,7 +1215,6 @@ class GuestMolecule(Molecule):
                 print('DL Poly did NOT terminate normally, refer DL_POLY.output')
                 raise RuntimeError("DL Poly did not terminate normally")
 
-
             # --- --- ---
             end_time = time.time()
             elapsed_time = end_time - start_time
@@ -1228,23 +1227,21 @@ class GuestMolecule(Molecule):
         For each directory in bs_directories, checks for the presence of file1.
         If file1 does not exist, checks for file2 and saves its last 5 lines to output_name.
         """
-        
         for dir_name in bs_directories:
             statis_path = os.path.join(starting_dir, 'DL_poly_BS', dir_name, 'STATIS')
             output_path = os.path.join(starting_dir, 'DL_poly_BS', dir_name, 'OUTPUT')
             error_file_path = os.path.join(starting_dir, 'DL_POLY.output')
-            
-            if not os.path.exists(statis_path):
-                if os.path.exists(output_path):
-                    with open(output_path, 'r') as output:
-                        lines = output.readlines()[-4:]
 
-                    with open(error_file_path, 'a') as error_file:
-                        error_file.write(os.path.basename(dir_name) + "\n")
-                        error_file.write("\n".join([line.strip() for line in lines if line.strip()]) + "\n")
-                        error_file.write('---' + "\n")
-        else:
-            pass
+            if not os.path.exists(statis_path) and os.path.exists(output_path):
+                with open(output_path, 'r') as output:
+                    lines = output.readlines()[-4:]
+
+                with open(error_file_path, 'a') as error_file:
+                    error_file.write(os.path.basename(dir_name) + "\n")
+                    error_file.write("\n".join([line.strip() for line in lines if line.strip()]) + "\n")
+                
+                return
+
 
     def minimum_image(self, atom1, atom2, box):
         """
