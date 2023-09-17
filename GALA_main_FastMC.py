@@ -27,8 +27,6 @@ import time
 # I also module load dl_poly (default dl_poly 1.10)
 
 # TODO Add a log file with key checkpoints?
-# TODO Add fix from other code for when dummy atoms have no probability plots
-# TODO Rework the Maxima, if not plot given for dummy atom no problem, nut must need plot for atomic sites
 # TODO Add code to fold and change probability file names
 # TODO Prunning based off the dl poly data
 # TODO Prunning based off symmetry (before dl poly calculations would be better to shorten the length of the code)
@@ -49,13 +47,21 @@ import time
 
 # ---
 # TODO for Jake
+
+# ---
+
+# Done list
+# ///////////////////////////////////////////////////////////////////////////
+# TODO Add fix from other code for when dummy atoms have no probability plots
+# TODO Rework the Maxima, if not plot given for dummy atom no problem, nut must need plot for atomic sites
+# TODO Add executable absolute path to DL POLY in .inp file 
 # TODO Use cutoff to find minimal grid factor and use that to make supercell for dl poly
 # TODO Grid factor should be computed for the cutoff they want
 # TODO Reorder binding sites from highest occupencies to lowest in xyz
 # TODO normalize each occupencies to 1 so that it is a % of the total occupencies
-# TODO Add executable absolute path to DL POLY in .inp file 
 # TODO Check to add dl poly output to see if something went wrong
 # TODO Write error instead of print, check if first dl poly ran, (STASIS) if not kill job
+# ///////////////////////////////////////////////////////////////////////////
 
 class GalaInput:
     def __init__(self, dir):
@@ -68,23 +74,24 @@ class GalaInput:
         with open(f'{dir}/GALA.inp', 'r') as f:
             lines = f.readlines()
 
-        self.Method = lines[27].upper().strip('\n')
-        self.Directory = lines[29].strip('\n')
-        self.Temperature = float(lines[33].strip('\n'))
-        self.Cutoff_GCMC = float(lines[35].strip('\n'))
-        self.Delr = float(lines[37].strip('\n'))
-        self.Ewald = lines[39].strip('\n')
-        self.Grid_Factor = tuple(int(num)
-                                 for num in lines[41].strip('[]\n').replace(' ', ''))
-        self.Grid_Spacing = float(lines[43].strip('\n'))
-        self.Sigma = float(lines[47].strip('\n'))
-        self.Radius = float(lines[49].strip('\n'))
-        self.Cutoff = float(lines[51].strip('\n'))
-        self.Write_Folded = lines[53].strip('\n')
-        self.Write_Smoothed = lines[55].strip('\n')
-        self.Selected_Guest = tuple(lines[63].split())
-        self.Selected_Site = tuple([group.split(',') if ',' in group else [
-            group] for group in lines[65].split()])
+        # General Input
+        self.method = lines[27].upper().strip('\n')
+        self.directory = lines[29].strip('\n')
+        # MD Parameters
+        self.md_exe = lines[33].strip('\n')
+        self.md_cutoff = float(lines[35].strip('\n'))
+        # GCMC Analysis Parameters
+        self.gcmc_sigma = float(lines[39].strip('\n'))
+        self.gcmc_radius = float(lines[41].strip('\n'))
+        self.gcmc_cutoff = float(lines[43].strip('\n'))
+        self.gcmc_write_folded = lines[45].strip('\n')
+        self.gcmc_grid_factor = tuple(int(num)
+                            for num in lines[47].strip('[]\n').replace(' ', ''))
+        self.gcmc_write_smoothed = lines[49].strip('\n')
+        # Probability Plot Guest and Site Selection
+        self.selected_guest = tuple(lines[57].split())
+        self.selected_site = tuple([group.split(',') if ',' in group else [
+            group] for group in lines[59].split()])
 
 
 class GuestStructure:
@@ -96,8 +103,8 @@ class GuestStructure:
             gala (GalaInput): Instance of the GalaInput class.
         """
         self.gala = gala
-        self.method = self.gala.Method
-        self.directory = self.gala.Directory
+        self.method = self.gala.method
+        self.directory = self.gala.directory
         self._structure_name = None
 
         if self.method == 'FASTMC':
@@ -131,16 +138,16 @@ class GuestStructure:
             tuple: Tuple containing parsed guest information (elements, coordinates, site_labels, site_data).
         """
 
-        if len(self.gala.Selected_Guest) != len(self.gala.Selected_Site):
+        if len(self.gala.selected_guest) != len(self.gala.selected_site):
             raise ValueError(
                 "Error Code: GUEST_SITE_MISMATCH\nError Description: The selected guest and site information is inconsistent.")
 
         try:
-            with open(os.path.join(self.gala.Directory, "FIELD"), "r") as f:
+            with open(os.path.join(self.gala.directory, "FIELD"), "r") as f:
                 field_lines = f.readlines()
         except FileNotFoundError:
             raise FileNotFoundError(
-                "Cannot find FIELD file in directory:", self.gala.Directory)
+                "Cannot find FIELD file in directory:", self.gala.directory)
 
         self._structure_name = field_lines[0].replace('\n', '')
 
@@ -268,7 +275,7 @@ class GuestStructure:
             tuple: Tuple containing the valid labels, coordinates, species, and site data of the selected guests.
         """
         selected_guest_indices = [guests_reduced.index(
-            guest) for guest in self.gala.Selected_Guest]
+            guest) for guest in self.gala.selected_guest]
         valid_labels = []
         coordinates = []
         species = []
@@ -302,8 +309,8 @@ class GuestStructure:
             list: Filtered site data.
         """
 
-        filtered_site_data = [data for data in site_data if data[0] in self.gala.Selected_Site[i]
-                              or data[1] not in elements and any(dummy in self.gala.Selected_Site[i] for dummy in dummy_atoms)]
+        filtered_site_data = [data for data in site_data if data[0] in self.gala.selected_site[i]
+                              or data[1] not in elements and any(dummy in self.gala.selected_site[i] for dummy in dummy_atoms)]
 
         return filtered_site_data, self.group_site_data(filtered_site_data)
 
@@ -572,9 +579,10 @@ class GuestMolecule(Molecule):
                         # treat as isolated point atom and still make a guest
                         binding_sites.append(
                             [(guest_atom_distances[0][1], central_max, central_max_value)])
+       
+        # binding_sites = self.remove_duplicates_and_inverses(binding_sites)
+        binding_sites = sorted(binding_sites, key=lambda x: x[0][2], reverse=True)
 
-        binding_sites = self.remove_duplicates_and_inverses(binding_sites)
-        
         for site in binding_sites:
             occupancy = site[0][2]
             occupancies.append(occupancy)
@@ -582,7 +590,7 @@ class GuestMolecule(Molecule):
             include_guests = [
                 [str(element.symbol) for element in self.guest_molecule_data.species], [str(element) for element in self.guest_molecule_data.labels], self.aligned_to(*site)]
             cleaned_binding_site.append(include_guests)
-
+   
         self.guest_molecule_data.add_site_property('elemental_binding_site', [list(
             row) for row in zip(*[i[2] for i in cleaned_binding_site])])
 
@@ -745,7 +753,7 @@ class GuestMolecule(Molecule):
                     pass
         self.structure_with_sites = structure_with_sites
         CifWriter(structure_with_sites).write_file(
-            os.path.join(self.gala.Directory, filename))
+            os.path.join(self.gala.directory, filename))
 
     def mk_dl_poly_control(self, cutoff, dummy=False):
         """CONTROL file for binding site energy calculation."""
@@ -937,7 +945,7 @@ class GuestMolecule(Molecule):
         Returns:
             None
         """
-        with open(os.path.join(self.gala.Directory, 'FIELD'), "r") as f:
+        with open(os.path.join(self.gala.directory, 'FIELD'), "r") as f:
             header = [f.readline(), f.readline()]
             molecular_types = int(f.readline().split()[2])
             guests = []
@@ -963,7 +971,7 @@ class GuestMolecule(Molecule):
                     out_file.write("".join(vdw_data))
                     out_file.write("close\n")
 
-    def modify_field_file(self, file_path, is_empty=False):
+    def modify_field_file(self, file_path, nummol_framework, is_empty):
         """
         Modify a DL_POLY FIELD file based on specified criteria.
 
@@ -999,6 +1007,11 @@ class GuestMolecule(Molecule):
                             lines[atom_idx] = "    ".join(parts) + "\n"
                         atom_idx += 1
                     in_guest_section = False
+            
+            if "Framework" in line:
+                in_framework = True
+                lines[index + 1] = f"NUMMOLS {nummol_framework}\n"
+                continue
 
         with open(file_path, 'w') as f:
             f.writelines(lines)
@@ -1017,7 +1030,7 @@ class GuestMolecule(Molecule):
             site_info_list.append([idx+1, atom, coord[0], coord[1], coord[2]])
         return site_info_list, len(site_info_list) + 1
 
-    def _handle_dl_poly_files(self, directory, binding_site_atoms, guest_idx, bs_idx, site_info_list, cell):
+    def _handle_dl_poly_files(self, directory, binding_site_atoms, guest_idx, bs_idx, site_info_list, cell, number_of_cell_framework, standard):
         """
         Handle DL_POLY files for a specific directory and binding site.
 
@@ -1033,9 +1046,9 @@ class GuestMolecule(Molecule):
         Returns:
             None
         """
-        cut = self.gala.Cutoff_GCMC
-        field_path = os.path.join(self.gala.Directory, 'FIELD')
-
+        cut = self.gala.md_cutoff
+        field_path = os.path.join(self.gala.directory, 'FIELD')
+        
         # Extract number of molecules
         num_value = 0
         with open(field_path, 'r') as file:
@@ -1070,11 +1083,11 @@ class GuestMolecule(Molecule):
             if self.get_molecular_types_number(field_path) == 2:
                 shutil.copy(field_path, os.path.join(directory, 'FIELD'))
                 self.modify_field_file(os.path.join(
-                    directory, 'FIELD'), bs_idx == 0)
+                    directory, 'FIELD'), number_of_cell_framework, is_empty=standard)
             else:
                 self.create_field_files(binding_site_atoms, directory)
                 self.modify_field_file(os.path.join(
-                    directory, 'FIELD'), bs_idx == 0)
+                    directory, 'FIELD'), number_of_cell_framework, is_empty=standard)
             with open(os.path.join(directory, "CONTROL"), "w") as control:
                 control.writelines(self.mk_dl_poly_control(cut))
         else:
@@ -1089,9 +1102,10 @@ class GuestMolecule(Molecule):
         """
         binding_sites = self._binding_sites_cart
         guest = self.composition.reduced_formula
+        fold_factor = self.minimum_supercell(cell=self.get_cube_structure.lattice.matrix, cutoff=self.gala.md_cutoff)
+        repeated_cell_number = np.prod(fold_factor)
         unitcell = self.get_cube_structure.copy()
-        fold_factor = self.gala.Grid_Factor
-        os.chdir(self.gala.Directory)
+        os.chdir(self.gala.directory)
         unitcell.make_supercell(scaling_matrix=fold_factor)
         supercell = unitcell
 
@@ -1099,7 +1113,7 @@ class GuestMolecule(Molecule):
             supercell, fold_factor)
         root_directory = "DL_poly_BS"
         root_directory = self._create_directory_structure(
-            self.gala.Directory, root_directory)
+            self.gala.directory, root_directory)
         current_directory = os.getcwd()
 
         individual_directories = []
@@ -1109,10 +1123,14 @@ class GuestMolecule(Molecule):
         no_bs_directory = self._create_directory_structure(
             root_directory, no_bs_directory_name)
         individual_directories.append(no_bs_directory)
-
-        site_info_list, guest_idx = self._gather_site_info(binding_sites[0])
+        binding_site = binding_sites[0]
+        binding_site_ = binding_site.copy()
+        arbitrary_location = [np.array([i, 0, 0]) for i in range(len(binding_site_[-1]))]
+        binding_site_[-1] = arbitrary_location
+        site_info_list = []
+        site_info_list, guest_idx = self._gather_site_info(binding_site_)
         self._handle_dl_poly_files(
-            no_bs_directory, binding_sites[0][1], guest_idx, 0, site_info_list, supercell_dlp)
+            no_bs_directory, binding_sites[0][1], guest_idx, 0, site_info_list, supercell_dlp, repeated_cell_number, standard=True)
 
         for bs_idx, binding_site in enumerate(binding_sites):
             bs_directory_name = "%s_bs_%04d" % (guest, bs_idx)
@@ -1121,14 +1139,14 @@ class GuestMolecule(Molecule):
 
             site_info_list, guest_idx = self._gather_site_info(binding_site)
             self._handle_dl_poly_files(
-                bs_directory, binding_site[1], guest_idx, bs_idx, site_info_list, supercell_dlp)
+                bs_directory, binding_site[1], guest_idx, bs_idx, site_info_list, supercell_dlp, repeated_cell_number, standard=False)
             individual_directories.append(bs_directory)
 
             os.chdir(current_directory)
 
         return individual_directories
 
-    def Make_DL_poly_script(self, EXE, dir, gala_delete_files):
+    def Make_DL_poly_script(self, EXE, dir, starting_dir,  gala_delete_files):
         """
         Create a script for running DL_POLY simulations on multiple directories.
 
@@ -1141,16 +1159,18 @@ class GuestMolecule(Molecule):
             None
         """
         if 'REVIVE' in gala_delete_files or '*_bs_*' in gala_delete_files:
-            rm_line = 'rm REVIVE\n'
+            rm_line = 'rm REVIVE 2> /dev/null\n'
         else:
             rm_line = ''
+        
+        open(os.path.join(starting_dir, 'DL_POLY.output'), 'a').close()
 
         gala_script = ["#!/bin/bash\n\n", "export FORT_BUFFERED=true\n\n",
                        "export OMP_NUM_THREADS=1\n\n"]
         # TODO Possibly add MD choice such as thread and ram in gala.inp file
         for directory in dir:
             gala_script.extend(["pushd %s > /dev/null\n" % directory,
-                                "%s\n" % EXE,
+                                "%s >> %s\n" % (EXE, os.path.join(starting_dir, 'DL_POLY.output')),
                                 rm_line,
                                 "popd > /dev/null\n"])
         gala = open('gala_MD', 'w')
@@ -1158,7 +1178,7 @@ class GuestMolecule(Molecule):
         gala.close()
         os.chmod('gala_MD', 0o755)
 
-    def Submit_DL_Poly(self, no_submit):
+    def Submit_DL_Poly(self, no_submit, bs_directories, starting_dir):
         """
         Submit DL_POLY simulations for execution.
 
@@ -1176,8 +1196,25 @@ class GuestMolecule(Molecule):
             start_time = time.time()
             # --- --- ---
 
+            # Run the subprocess
             Submit = subprocess.Popen(['./gala_MD'], stdout=subprocess.PIPE)
             Submit.wait()
+
+            # Check if the subprocess ended with an error (non-zero return code)
+            if Submit.returncode != 0:
+                raise RuntimeError("Subprocess ./gala_MD encountered an error")
+
+            self.check_and_save(bs_directories, starting_dir)
+
+            error_file = os.path.join(starting_dir, 'DL_POLY.output')
+
+            if os.path.getsize(error_file) == 0:
+                print('DL Poly terminated normally')
+                os.remove(error_file)
+            else: 
+                print('DL Poly did NOT terminate normally, refer DL_POLY.output')
+                raise RuntimeError("DL Poly did not terminate normally")
+
 
             # --- --- ---
             end_time = time.time()
@@ -1185,6 +1222,29 @@ class GuestMolecule(Molecule):
             print(
                 f"DL Poly Subprocesses Elapsed Time: {elapsed_time:.2f} seconds")
             # --- --- ---
+
+    def check_and_save(self, bs_directories, starting_dir):
+        """
+        For each directory in bs_directories, checks for the presence of file1.
+        If file1 does not exist, checks for file2 and saves its last 5 lines to output_name.
+        """
+        
+        for dir_name in bs_directories:
+            statis_path = os.path.join(starting_dir, 'DL_poly_BS', dir_name, 'STATIS')
+            output_path = os.path.join(starting_dir, 'DL_poly_BS', dir_name, 'OUTPUT')
+            error_file_path = os.path.join(starting_dir, 'DL_POLY.output')
+            
+            if not os.path.exists(statis_path):
+                if os.path.exists(output_path):
+                    with open(output_path, 'r') as output:
+                        lines = output.readlines()[-4:]
+
+                    with open(error_file_path, 'a') as error_file:
+                        error_file.write(os.path.basename(dir_name) + "\n")
+                        error_file.write("\n".join([line.strip() for line in lines if line.strip()]) + "\n")
+                        error_file.write('---' + "\n")
+        else:
+            pass
 
     def minimum_image(self, atom1, atom2, box):
         """
@@ -1238,8 +1298,22 @@ class GuestMolecule(Molecule):
         volume = np.dot(cell[0], b_cross_c)
 
         return volume / min(np.linalg.norm(b_cross_c), np.linalg.norm(c_cross_a), np.linalg.norm(a_cross_b))
+    
+    def minimum_supercell(self, cell, cutoff):
+        """Calculate the smallest supercell with a half-cell width cutoff."""
+        a_cross_b = np.cross(cell[0], cell[1])
+        b_cross_c = np.cross(cell[1], cell[2])
+        c_cross_a = np.cross(cell[2], cell[0])
 
-    def update_gala(self, cell, path):
+        volume = np.dot(cell[0], b_cross_c)
+
+        widths = [volume / np.linalg.norm(b_cross_c),
+                  volume / np.linalg.norm(c_cross_a),
+                  volume / np.linalg.norm(a_cross_b)]     
+
+        return tuple(int(np.ceil(2*cutoff/x)) for x in widths)
+
+    def update_gala(self, path):
         """
         Update structure properties from DL_POLY outputs.
 
@@ -1270,12 +1344,11 @@ class GuestMolecule(Molecule):
         startdir = os.getcwd()
         os.chdir(filepath)
 
-        for directories in os.listdir():
-            if directories == f'{self.structure_name}_{guest}':
-                os.chdir(directories)
-                statis = open('STATIS').readlines()
-                os.chdir('..')
+        if os.path.exists(os.path.join(filepath, f'{self.structure_name}_{guest}', 'STATIS')):
+                statis = open(os.path.join(filepath, f'{self.structure_name}_{guest}', 'STATIS')).readlines()
                 empty_esp = float(statis[3].split()[4])
+        
+        highest_occupency = self._binding_site_maxima[0][0][2]
 
         for directories in os.listdir():
             if directories.startswith(f'{guest}_bs'):
@@ -1365,25 +1438,30 @@ class GuestMolecule(Molecule):
                     # Extract the information we need from the tuples
                     positions = [(atom, dummy.site_properties['pos'])
                                  for atom, dummy in positions]
+                    
+                    percentage_occupancy = (magnitude / highest_occupency) * 100
 
-                    # print("info:Binding site %i: %f kcal/mol, %f occupancy\n" %
-                    #       (bs_idx, (e_vdw+e_esp), magnitude))
-
+                    # print("info:Binding site %i: %f kcal/mol, %.2f%% occupancy\n" %
+                    #       (bs_idx, (e_vdw+e_esp), percentage_occupancy))
+                    
                     binding_energies.append(
-                        [magnitude, e_vdw, e_esp, positions])
-
-                with open('%s_gala_binding_sites_xyz' % guest, 'w') as gala_out:
+                        [percentage_occupancy, e_vdw, e_esp, positions])
+                
+                with open('%s_gala_binding_sites.xyz' % guest, 'w') as gala_out:
                     frame_number = 0
                     for idx, bind in enumerate(binding_energies):
+                        
                         energy = bind[1] + bind[2]
                         if energy > 0 or energy != energy:
                             continue
+
                         pc_elec = 100*bind[2]/energy
+              
                         this_point = [
                             "%i\n" % len(bind[3]),  # number of atoms
                             # idx, energy, %esp, e_vdw, e_esp, magnitude
                             " BS: %i, Frame: %i, Ebind= %f, esp= %.2f%%, Evdw= %f, "
-                            "Eesp= %.2f, occ= %f\n" %
+                            "Eesp= %.2f, occ= %.2f%%\n" %
                             (idx, frame_number, energy, pc_elec, bind[1], bind[2],
                              bind[0])]
                         for atom in bind[3]:
@@ -1392,7 +1470,7 @@ class GuestMolecule(Molecule):
                                 "%12.6f %12.6f %12.6f\n" % tuple(atom[1]))
                         gala_out.writelines(this_point)
                         frame_number += 1
-
+        
         os.chdir(startdir)
 
 
@@ -1446,7 +1524,7 @@ class GuestSites:
         Returns:
             tuple: Tuple containing the fractional coordinates of the maxima and the maxima values.
         """
-        if self.gala.Method == 'FASTMC':
+        if self.gala.method == 'FASTMC':
 
             if self.cube is None or self._datapoints is None:
                 self.load_cube_data_fastmc()
@@ -1489,11 +1567,11 @@ class GuestSites:
 
         if self.cube is None:
             if self._datapoints is None or self.cube is None:
-                if self.gala.Method == "FASTMC":
+                if self.gala.method == "FASTMC":
                     self.load_cube_data_fastmc()
                 else:
                     raise ValueError(
-                        "Invalid directory value: " + self.gala.Method)
+                        "Invalid directory value: " + self.gala.method)
 
         lattice = self.cube.structure.lattice
 
@@ -1529,7 +1607,7 @@ class GuestSites:
             pymatgen.Structure: The structure object associated with the cube data.
         """
         if self.cube is None:
-            if self.gala.Method == 'FASTMC':
+            if self.gala.method == 'FASTMC':
                 self.load_cube_data_fastmc()
         if self._maxima_coordinates == ['N/A']:
             if GuestSites.all_structure:
@@ -1543,11 +1621,11 @@ class GuestSites:
         """
         Load the cube data for the site.
         """
-        dir = self.gala.Directory
+        dir = self.gala.directory
         guests = self.parent_molecule.composition.reduced_formula
         sites = self.label
         sites_element = self.element
-        fold = self.gala.Grid_Factor
+        fold = self.gala.gcmc_grid_factor
 
         probability_file = f'{dir}/Prob_Guest_{guests}_Site_{sites}_folded.cube'
         probability_file_unfolded = f'{dir}/Prob_Guest_{guests}_Site_{sites}.cube'
@@ -1585,11 +1663,11 @@ Error Message: We apologize, but we couldn't locate any available unfolded or fo
         Calculate the maxima for the site.
         """
         if self._datapoints is None or self.cube is None:
-            if self.gala.Method == "FASTMC":
+            if self.gala.method == "FASTMC":
                 self.load_cube_data_fastmc()
             else:
                 raise ValueError(
-                    "Invalid directory value: " + self.gala.Method)
+                    "Invalid directory value: " + self.gala.method)
 
         original_data = self._datapoints
         temp_data = original_data
@@ -1599,14 +1677,14 @@ Error Message: We apologize, but we couldn't locate any available unfolded or fo
         spacing = np.linalg.norm(cell[0][0] / dimension[0])
         cell_total = cell / dimension
 
-        sigma = (self.gala.Sigma / spacing) ** 0.5
+        sigma = (self.gala.gcmc_sigma / spacing) ** 0.5
         temp_data = gaussian_filter(temp_data, sigma, mode="wrap")
 
         temp_data *= normalising_sum / sum(temp_data)
 
         neighborhood = generate_binary_structure(np.ndim(temp_data), 2)
 
-        footprint = int(round(self.gala.Radius / spacing, 0))
+        footprint = int(round(self.gala.gcmc_radius / spacing, 0))
         neighborhood = iterate_structure(neighborhood, footprint)
 
         local_max = maximum_filter(
@@ -1627,7 +1705,7 @@ Error Message: We apologize, but we couldn't locate any available unfolded or fo
         pruned_peaks = []
         maximum_value = max([peak[1] for peak in cartesian_peaks])
         for point in sorted(cartesian_peaks, key=lambda k: -k[1], reverse=True):
-            if point[1] > self.gala.Cutoff * maximum_value:
+            if point[1] > self.gala.gcmc_cutoff * maximum_value:
                 pruned_peaks.append(point)
 
         self._maxima_coordinates = [point[0] for point in pruned_peaks]
@@ -1644,8 +1722,8 @@ if __name__ == "__main__":
     gala_input = GalaInput(GALA_MAIN)
 
     # Following section was for testing. when running the code, it will remove the DL_poly_BS folder and recreate all the directories.
-    if os.path.exists(os.path.join(gala_input.Directory, 'DL_poly_BS')) and os.path.isdir(os.path.join(gala_input.Directory, 'DL_poly_BS')):
-        shutil.rmtree(os.path.join(gala_input.Directory, 'DL_poly_BS'))
+    if os.path.exists(os.path.join(gala_input.directory, 'DL_poly_BS')) and os.path.isdir(os.path.join(gala_input.directory, 'DL_poly_BS')):
+        shutil.rmtree(os.path.join(gala_input.directory, 'DL_poly_BS'))
     else:
         pass
 
@@ -1656,10 +1734,10 @@ if __name__ == "__main__":
         structure.guest_molecules[i].write_binding_sites(filename=filename)
         directories = structure.guest_molecules[i].Make_Files()
         structure.guest_molecules[i].Make_DL_poly_script(
-            'DLPOLY.X', directories, ['REVIVE'])
-        structure.guest_molecules[i].Submit_DL_Poly(False)
+            gala_input.md_exe, directories, gala_input.directory, ['REVIVE'])
+        structure.guest_molecules[i].Submit_DL_Poly(False, directories, gala_input.directory)
         structure.guest_molecules[i].update_gala(
-            gala_input.Grid_Factor, os.path.join(gala_input.Directory, 'DL_poly_BS'))
+            os.path.join(gala_input.directory, 'DL_poly_BS'))
 
     # --- --- ---
     end_time = time.time()

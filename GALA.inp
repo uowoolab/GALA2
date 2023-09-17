@@ -21,29 +21,21 @@
         \::/____/                \::/    /                \::/    /        \::/    /        
                                   \/____/                  \/____/          \/____/      
 ==========================================================================================
-Authors ... 
+Authors ...
 ------------------------------------------------------------------------------------------
                                     General Input
 >> FASTMC or RASPA? <<
 FASTMC
 >> Absolute path to directory <<
-/Users/oliviermarchand/Desktop/Python_Codes/Masters/GALA_v2/Jake/GALA-main/Oli_test_dir/calf-20_no_dummy_plot
+/Users/oliviermarchand/Desktop/Python_Codes/Masters/GALA_v2/Jake/GALA-main/Oli_test_dir/calf-20_data
 ------------------------------------------------------------------------------------------
-                                    GCMC Parameters
->> Temperature (Kelvin) <<
-293.000000
+                                MD Parameters
+>> MD Program Executable <<
+DL_POLY.X
 >> Cutoff (Angstrom) <<
 12.500000
->> Delr (Angstrom) <<
-1.0
->> Ewald Precision <<
-1d-6
->> Grid Factors <<
-4 3 3
->> Grid Spacing <<
-0.150000
 ------------------------------------------------------------------------------------------
-                                    Calculation Parameters
+                            GCMC Analysis Parameters
 >> Sigma <<
 2
 >> Radius <<
@@ -52,10 +44,12 @@ FASTMC
 0.1
 >> Write folded (T or F) <<
 T
+>> Grid Factors (Required if "Write folded" is True) <<
+4 3 3
 >> Write Smoothed (T or F) <<
 T
 ------------------------------------------------------------------------------------------
-                                    Probability Plot Selection
+                                Probability Plot Selection
 >> The naming scheme for the output file is as followed:
     > Prob_Guest_X_Site_Y_folded.cube
         where X represent the Guest Molecular Formula ex. CO2, N2, CO
@@ -65,4 +59,3 @@ CO2 N2
 >> Provide Sites delimited by a space and grouped by molecule ex. Cx,Ox Nx <<
 Cx,Ox Nx,COM
 ------------------------------------------------------------------------------------------
-
