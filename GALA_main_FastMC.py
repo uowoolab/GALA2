@@ -57,8 +57,8 @@ import time
 # TODO Add executable absolute path to DL POLY in .inp file 
 # TODO Use cutoff to find minimal grid factor and use that to make supercell for dl poly
 # TODO Grid factor should be computed for the cutoff they want
-# TODO Reorder binding sites from highest occupencies to lowest in xyz
-# TODO normalize each occupencies to 1 so that it is a % of the total occupencies
+# TODO Reorder binding sites from highest occupancies to lowest in xyz
+# TODO normalize each occupancies to 1 so that it is a % of the total occupancies
 # TODO Check to add dl poly output to see if something went wrong
 # TODO Write error instead of print, check if first dl poly ran, (STASIS) if not kill job
 # ///////////////////////////////////////////////////////////////////////////
