@@ -57,8 +57,8 @@ import time
 # TODO Add executable absolute path to DL POLY in .inp file 
 # TODO Use cutoff to find minimal grid factor and use that to make supercell for dl poly
 # TODO Grid factor should be computed for the cutoff they want
-# TODO Reorder binding sites from highest occupancies to lowest in xyz
-# TODO normalize each occupancies to 1 so that it is a % of the total occupancies
+# TODO Reorder binding sites from highest occupencies to lowest in xyz
+# TODO normalize each occupencies to 1 so that it is a % of the total occupencies
 # TODO Check to add dl poly output to see if something went wrong
 # TODO Write error instead of print, check if first dl poly ran, (STASIS) if not kill job
 # ///////////////////////////////////////////////////////////////////////////
@@ -1146,7 +1146,7 @@ class GuestMolecule(Molecule):
 
         return individual_directories
 
-    def Make_DL_poly_script(self, EXE, dir, starting_dir,  gala_delete_files):
+    def Make_DL_poly_script(self, EXE, dir, starting_dir, gala_delete_files):
         """
         Create a script for running DL_POLY simulations on multiple directories.
 
@@ -1166,17 +1166,29 @@ class GuestMolecule(Molecule):
         open(os.path.join(starting_dir, 'DL_POLY.output'), 'a').close()
 
         gala_script = ["#!/bin/bash\n\n", "export FORT_BUFFERED=true\n\n",
-                       "export OMP_NUM_THREADS=1\n\n"]
+                    "export OMP_NUM_THREADS=1\n\n"]
+        
         # TODO Possibly add MD choice such as thread and ram in gala.inp file
         for directory in dir:
-            gala_script.extend(["pushd %s > /dev/null\n" % directory,
-                                "%s >> %s\n" % (EXE, os.path.join(starting_dir, 'DL_POLY.output')),
-                                rm_line,
-                                "popd > /dev/null\n"])
+            gala_script.extend([
+                "pushd %s > /dev/null\n" % directory,
+                "%s >> %s\n" % (EXE, os.path.join(starting_dir, 'DL_POLY.output')),
+                "if [ $? -ne 0 ]; then\n",
+                "    echo 'Error: %s failed in %s directory.'\n" % (EXE, directory),
+                "    exit 1\n",
+                "fi\n",
+                "if [ ! -f STATIS ]; then\n",
+                "    echo 'Error: STATIS file not found in %s directory.'\n" % directory,
+                "    exit 2\n",
+                "fi\n",
+                rm_line,
+                "popd > /dev/null\n"
+            ])
         gala = open('gala_MD', 'w')
         gala.writelines(gala_script)
         gala.close()
         os.chmod('gala_MD', 0o755)
+
 
     def Submit_DL_Poly(self, no_submit, bs_directories, starting_dir):
         """
@@ -1200,20 +1212,19 @@ class GuestMolecule(Molecule):
             Submit = subprocess.Popen(['./gala_MD'], stdout=subprocess.PIPE)
             Submit.wait()
 
-            # Check if the subprocess ended with an error (non-zero return code)
-            if Submit.returncode != 0:
-                raise RuntimeError("Subprocess ./gala_MD encountered an error")
-
             self.check_and_save(bs_directories, starting_dir)
+
+            if Submit.returncode == 0:
+                print('DL Poly terminated normally')
+            elif Submit.returncode == 1:
+                raise RuntimeError("Subprocess ./gala_MD encountered an error: DL_POLY.X failed during execution.")
+            elif Submit.returncode == 2:
+                raise RuntimeError("Subprocess ./gala_MD encountered an error: DL_POLY.X completed but the STATIS file was not found.")
 
             error_file = os.path.join(starting_dir, 'DL_POLY.output')
 
             if os.path.getsize(error_file) == 0:
-                print('DL Poly terminated normally')
                 os.remove(error_file)
-            else: 
-                print('DL Poly did NOT terminate normally, refer DL_POLY.output')
-                raise RuntimeError("DL Poly did not terminate normally")
 
             # --- --- ---
             end_time = time.time()
