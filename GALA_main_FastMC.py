@@ -77,6 +77,8 @@ class GalaInput:
         # General Input
         self.method = lines[27].upper().strip('\n')
         self.directory = lines[29].strip('\n')
+        if self.directory == '':
+            self.directory = dir
         # MD Parameters
         self.md_exe = lines[33].strip('\n')
         self.md_cutoff = float(lines[35].strip('\n'))
@@ -87,6 +89,9 @@ class GalaInput:
         self.gcmc_write_folded = lines[45].strip('\n')
         self.gcmc_grid_factor = tuple(int(num)
                             for num in lines[47].strip('[]\n').replace(' ', ''))
+        if self.gcmc_grid_factor == ():
+            self.gcmc_grid_factor = (1, 1, 1)
+
         self.gcmc_write_smoothed = lines[49].strip('\n')
         # Probability Plot Guest and Site Selection
         self.selected_guest = tuple(lines[57].split())

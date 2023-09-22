@@ -26,12 +26,12 @@ Authors ...
                                     General Input
 >> FASTMC or RASPA? <<
 FASTMC
->> Absolute path to directory <<
+>> Absolute path to directory with input files (FIELD + Probability plots)<<
 /Users/oliviermarchand/Desktop/Python_Codes/Masters/GALA_v2/Jake/GALA-main/Oli_test_dir/calf-20_data
 ------------------------------------------------------------------------------------------
                                 MD Parameters
 >> MD Program Executable <<
-DL_POLY.X
+DLPOLY.X
 >> Cutoff (Angstrom) <<
 12.500000
 ------------------------------------------------------------------------------------------
@@ -43,11 +43,11 @@ DL_POLY.X
 >> Cutoff <<
 0.1
 >> Write folded (T or F) <<
-T
+F
 >> Grid Factors (Required if "Write folded" is True) <<
-4 3 3
+
 >> Write Smoothed (T or F) <<
-T
+F
 ------------------------------------------------------------------------------------------
                                 Probability Plot Selection
 >> The naming scheme for the output file is as followed:
