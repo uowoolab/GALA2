@@ -45,6 +45,8 @@ import time
 
 # TODO No-folded FIELD convert to folded FIELD file, if they want to fold they will require to specify the grid factor
 
+# TODO Better docstring, 
+# TODO Set up how to use documentation
 # ---
 # TODO for Jake
 
@@ -61,6 +63,10 @@ import time
 # TODO normalize each occupencies to 1 so that it is a % of the total occupencies
 # TODO Check to add dl poly output to see if something went wrong
 # TODO Write error instead of print, check if first dl poly ran, (STASIS) if not kill job
+# TODO Max Number of binding site
+# TODO Default cwd directry
+# TODO Default fold factor (1,1,1)
+# TODO clean up github for public and group members
 # ///////////////////////////////////////////////////////////////////////////
 
 class GalaInput:
@@ -76,27 +82,45 @@ class GalaInput:
 
         # General Input
         self.method = lines[27].upper().strip('\n')
+
         self.directory = lines[29].strip('\n')
         if self.directory == '':
+            # TODO ADD TO LOG THE DIRECTORY GALA IS RUNNING ON
             self.directory = dir
+        self.max_number_bs = lines[31].strip('\n')
+        try:
+            self.max_number_bs = int(self.max_number_bs)
+            if self.max_number_bs > 0:
+                pass
+            else:
+                raise ValueError
+        except ValueError:
+            print('Warning: Invalid input. All binding sites will be printed.')
+            self.max_number_bs = float('inf')
+        
+        if not os.path.exists(os.path.join(self.directory, 'GALA_Output')):
+            # TODO ADD TO LOG PATH OF THE OUTPUT DIRECTORY
+            os.mkdir(os.path.join(self.directory, 'GALA_Output'))
+        self.output_directory = os.path.join(self.directory, 'GALA_Output')
         # MD Parameters
-        self.md_exe = lines[33].strip('\n')
-        self.md_cutoff = float(lines[35].strip('\n'))
+        self.md_exe = lines[35].strip('\n')
+        self.md_cutoff = float(lines[37].strip('\n'))
         # GCMC Analysis Parameters
-        self.gcmc_sigma = float(lines[39].strip('\n'))
-        self.gcmc_radius = float(lines[41].strip('\n'))
-        self.gcmc_cutoff = float(lines[43].strip('\n'))
-        self.gcmc_write_folded = lines[45].strip('\n')
+        self.gcmc_sigma = float(lines[41].strip('\n'))
+        self.gcmc_radius = float(lines[43].strip('\n'))
+        self.gcmc_cutoff = float(lines[45].strip('\n'))
+        self.gcmc_write_folded = lines[47].strip('\n').upper() == "T"
+        # TODO CHECK IF THIS IS A LIST, TUPLE, OR WHAT IT IS RN
         self.gcmc_grid_factor = tuple(int(num)
-                            for num in lines[47].strip('[]\n').replace(' ', ''))
+                            for num in lines[49].strip('[]\n').replace(' ', ''))
         if self.gcmc_grid_factor == ():
+            # TODO ADD TO LOG THAT THE DEFAULT GRID FACTORS WERE USED
             self.gcmc_grid_factor = (1, 1, 1)
-
-        self.gcmc_write_smoothed = lines[49].strip('\n')
+        self.gcmc_write_smoothed = lines[51].strip('\n').upper() == "T"
         # Probability Plot Guest and Site Selection
-        self.selected_guest = tuple(lines[57].split())
+        self.selected_guest = tuple(lines[59].split())
         self.selected_site = tuple([group.split(',') if ',' in group else [
-            group] for group in lines[59].split()])
+            group] for group in lines[61].split()])
 
 
 class GuestStructure:
@@ -585,8 +609,14 @@ class GuestMolecule(Molecule):
                         binding_sites.append(
                             [(guest_atom_distances[0][1], central_max, central_max_value)])
        
-        # binding_sites = self.remove_duplicates_and_inverses(binding_sites)
+        binding_sites = self.remove_duplicates_and_inverses(binding_sites)
         binding_sites = sorted(binding_sites, key=lambda x: x[0][2], reverse=True)
+
+        if self.gala.max_number_bs != float('inf'):
+            if len(binding_sites) > self.gala.max_number_bs:
+                binding_sites = binding_sites[:self.gala.max_number_bs]
+            elif len(binding_sites) < self.gala.max_number_bs:
+                print("Less binding sites found than requested, proceeding with all binding sites")
 
         for site in binding_sites:
             occupancy = site[0][2]
@@ -600,8 +630,7 @@ class GuestMolecule(Molecule):
             row) for row in zip(*[i[2] for i in cleaned_binding_site])])
 
         self._binding_site_maxima = binding_sites
-
-        self._binding_sites = cleaned_binding_site
+        self._binding_sites = self.remove_duplicates(cleaned_binding_site)
         self._binding_sites_cart = self.convert_to_cartesian(
             cleaned_binding_site)
 
@@ -661,6 +690,27 @@ class GuestMolecule(Molecule):
                            np.array_equal(np.abs(reversed_site[2][1]), np.abs(unique_site[2][1])) for unique_site in unique_sites):
                     unique_sites.append(site)
         return list(reversed(unique_sites))
+    
+
+    def remove_duplicates(self, lst):
+        """
+        Remove duplicate sublists from a list based on the uniqueness of the third element 
+        (numpy arrays) in each sublist.
+
+        Parameters:
+        - lst (list): A list of sublists, where each sublist contains two lists of strings 
+                      and a list of numpy arrays as its third element.
+
+        Returns:
+        - list: A new list with duplicate sublists removed, determined by the uniqueness 
+                of the numpy arrays in each sublist.
+        """
+        seen = set()
+        return [
+            seen.add(tuple(map(tuple, item[2]))) or item 
+            for item in lst 
+            if tuple(map(tuple, item[2])) not in seen
+        ]
 
     def aligned_to(self, target, align=None, orient=None):
         """
@@ -679,7 +729,6 @@ class GuestMolecule(Molecule):
         """
 
         get_struct = self.get_cube_structure
-
         target_idx, target = target[0], target[1]
         target_guest = self.cart_coords[target_idx]
         guest_position = [[x - y for x, y in zip(atom, target_guest)]
@@ -694,7 +743,6 @@ class GuestMolecule(Molecule):
 
             if orient is not None:
                 orient_idx, orient = orient
-
                 # guest position has changed
                 align_guest = guest_position[align_idx]
                 orient_guest = guest_position[orient_idx]
@@ -735,6 +783,27 @@ class GuestMolecule(Molecule):
         return np.array([[c + h*v[0]*v[0], h*v[0]*v[1] - v[2], h*v[0]*v[2] + v[1]],
                         [h*v[0]*v[1] + v[2], c + h*v[1]*v[1], h*v[1]*v[2] - v[0]],
                         [h*v[0]*v[2] - v[1], h*v[1]*v[2] + v[0], c + h*v[2]*v[2]]])
+    
+    def write_binding_sites_fractional(self, filename):
+        cell_vectors = self.get_cube_structure.lattice.matrix
+
+        with open(os.path.join(self.gala.output_directory, filename), 'w') as f:
+            # Writing cell vectors to file
+            f.write(f"{self.structure_name}\n")
+            f.write('Cell_Lattice\n')
+
+            for vector in cell_vectors:
+                f.write("     %12.12f %12.12f %12.12f\n" % tuple(vector))
+
+            # Writing binding sites to file
+            for idx, bind in enumerate(self._binding_sites):
+                this_point = ["BS: %i\n" % idx]
+                for atom, label, coords in zip(bind[0], bind[1], bind[2]):
+                    this_point.append("%-5s %-5s" % (atom, label))
+                    this_point.append(
+                        "%12.6f %12.6f %12.6f\n" % tuple(coords))
+                f.writelines(this_point)
+
 
     def write_binding_sites(self, filename):
         """
@@ -758,7 +827,7 @@ class GuestMolecule(Molecule):
                     pass
         self.structure_with_sites = structure_with_sites
         CifWriter(structure_with_sites).write_file(
-            os.path.join(self.gala.directory, filename))
+            os.path.join(self.gala.output_directory, filename))
 
     def mk_dl_poly_control(self, cutoff, dummy=False):
         """CONTROL file for binding site energy calculation."""
@@ -1354,9 +1423,9 @@ class GuestMolecule(Molecule):
             None
         """
         guest = self.composition.reduced_formula
-        startdir = os.getcwd()
+        startdir = gala_input.directory
         os.chdir(filepath)
-
+        
         if os.path.exists(os.path.join(filepath, f'{self.structure_name}_{guest}', 'STATIS')):
                 statis = open(os.path.join(filepath, f'{self.structure_name}_{guest}', 'STATIS')).readlines()
                 empty_esp = float(statis[3].split()[4])
@@ -1460,7 +1529,7 @@ class GuestMolecule(Molecule):
                     binding_energies.append(
                         [percentage_occupancy, e_vdw, e_esp, positions])
                 
-                with open('%s_gala_binding_sites.xyz' % guest, 'w') as gala_out:
+                with open(os.path.join(self.gala.output_directory, '%s_gala_binding_sites.xyz' % guest), 'w') as gala_out:
                     frame_number = 0
                     for idx, bind in enumerate(binding_energies):
                         
@@ -1648,6 +1717,8 @@ class GuestSites:
                 self.cube = VolumetricData.from_cube(probability_file)
                 localdata = self.cube.data['total']
                 localdata = localdata / np.sum(localdata)
+                if self.gala.gcmc_write_folded:
+                    print('Input Files Were Already Folded, Skipped')
                 self._datapoints = localdata
             except Exception as e:
                 raise Exception(f'Error loading cube file: {probability_file}')
@@ -1655,10 +1726,16 @@ class GuestSites:
         elif not os.path.exists(probability_file) and os.path.exists(probability_file_unfolded):
             try:
                 self.cube = VolumetricData.from_cube(probability_file_unfolded)
-                localdata = self.cube.data['total']
+                # TODO Write Check to see if division is ok (must dim must be divisible by fold)
+                folded_dim = self.cube.dim // np.array(fold)
+                unit_cell = self.get_unit_cell_structure(fold)
+                localdata = self.folding_cube_file(fold, folded_dim)
                 localdata = localdata / np.sum(localdata)
-                localdata = localdata / float(fold[0]*fold[1]*fold[2])
+                self.cube = VolumetricData(unit_cell, {'total': localdata})
+                if self.gala.gcmc_write_folded:
+                    self.save_folded_cube(dir, guests, sites)
                 self._datapoints = localdata
+                
             except Exception as e:
                 raise Exception(
                     f'Error loading cube file: {probability_file_unfolded}')
@@ -1671,6 +1748,95 @@ class GuestSites:
 Error Description: Unavailable Probability File
 Error Message: We apologize, but we couldn't locate any available unfolded or folded probability file required for this operation.\n''')
 
+    def get_unit_cell_structure(self, fold):
+        """
+        Computes the unit cell structure by considering a subset of the structure 
+        within the fractional coordinate bounds, determined by the given fold.
+        
+        Parameters:
+        - fold (tuple): A tuple of integers representing the fold in each 
+          x, y, z dimension respectively.
+
+        Returns:
+        - unit_cell (Structure): A Structure object representing the unit cell, 
+          which contains a subset of sites from the original structure based on 
+          the fold, and has a lattice rescaled accordingly.
+
+        Example:
+        - If the fold is (2,2,2), it means we are considering half of the structure 
+          in each dimension to compute the unit cell structure.
+        """
+        bounds = (1 / fold[0], 1 / fold[1], 1 / fold[2])
+        unit_cell_sites = [site for site in self.cube.structure if all(0 <= c < bounds[i] for i, c in enumerate(site.frac_coords))]
+        unit_cell_sites_frac_coords = [site.frac_coords * fold for site in unit_cell_sites]
+
+        constraint_lattice = self.cube.structure.lattice.matrix / np.array(fold)[:, None]
+        unit_cell = Structure(constraint_lattice,
+                            [site.species_string for site in unit_cell_sites],
+                            unit_cell_sites_frac_coords,
+                            coords_are_cartesian=False)
+        return unit_cell
+
+
+    def folding_cube_file(self, fold, folded_dim):
+        """
+        Folds the cube file data by averaging grid points over blocks defined 
+        by the fold, and then normalizes the folded data.
+
+        Parameters:
+        - fold (tuple): A tuple of integers indicating how many times the 
+          original data should be folded in each dimension (x, y, z).
+        - folded_dim (tuple): A tuple indicating the dimensions of the folded 
+          data cube.
+
+        Returns:
+        - normalized_data (ndarray): A numpy array containing the averaged and 
+          normalized data after folding according to the specified fold.
+
+        Example:
+        - If the fold is (2,2,2), the original data will be divided into 8 blocks, 
+          and the values within each block are averaged to obtain the folded data.
+        """
+        localdata = np.zeros((fold[0] * fold[1] * fold[2], folded_dim[0], folded_dim[1], folded_dim[2]))
+        for xidx in range(fold[0]):
+            for yidx in range(fold[1]):
+                for zidx in range(fold[2]):
+                    grid_idx = zidx + yidx * fold[2] + xidx * fold[2] * fold[1]
+                    localdata[grid_idx] = self.cube.data['total'][
+                                        (xidx * self.cube.dim[0]) // fold[0]:((xidx + 1) * self.cube.dim[0]) // fold[0],
+                                        (yidx * self.cube.dim[1]) // fold[1]:((yidx + 1) * self.cube.dim[1]) // fold[1],
+                                        (zidx * self.cube.dim[2]) // fold[2]:((zidx + 1) * self.cube.dim[2]) // fold[2]]
+
+        avg_data = np.mean(localdata, axis=0)
+        normalized_data = avg_data / np.sum(avg_data)
+        return normalized_data
+
+
+    def save_folded_cube(self, dir, guests, sites):
+        """
+        Saves the folded cube data to a file.
+
+        Parameters:
+        - dir (str): The directory where the folded cube file will be saved.
+        - guests (str): A string representing the guests parameter, 
+          to be included in the filename.
+        - sites (str): A string representing the sites parameter, 
+          to be included in the filename.
+
+        Returns:
+        - None
+
+        Side Effect:
+        - A new .cube file is created in the specified directory with the 
+          folded data.
+
+        Example filename:
+        - 'Prob_Guest_<guests>_Site_<sites>_folded.cube', where <guests> and <sites> 
+          will be replaced by the actual values passed to the function.
+        """
+        file_path = os.path.join(dir, f'Prob_Guest_{guests}_Site_{sites}_folded.cube')
+        self.cube.to_cube(file_path)
+    
     def calculate_maxima(self):
         """
         Calculate the maxima for the site.
@@ -1695,6 +1861,11 @@ Error Message: We apologize, but we couldn't locate any available unfolded or fo
 
         temp_data *= normalising_sum / sum(temp_data)
 
+        if self.gala.gcmc_write_smoothed:
+            guests = self.parent_molecule.composition.reduced_formula
+            sites = self.label
+            VolumetricData(self.cube.structure, {'total': temp_data}).to_cube(os.path.join(self.gala.directory, f'Prob_Guest_{guests}_Site_{sites}_smoothed.cube'))
+
         neighborhood = generate_binary_structure(np.ndim(temp_data), 2)
 
         footprint = int(round(self.gala.gcmc_radius / spacing, 0))
@@ -1714,7 +1885,7 @@ Error Message: We apologize, but we couldn't locate any available unfolded or fo
             if np.all(temp_data[point] > 0.0):
                 cartesian_peaks.append(
                     (np.dot(point, cell_total).tolist(), temp_data[point]))
-
+                
         pruned_peaks = []
         maximum_value = max([peak[1] for peak in cartesian_peaks])
         for point in sorted(cartesian_peaks, key=lambda k: -k[1], reverse=True):
@@ -1722,7 +1893,7 @@ Error Message: We apologize, but we couldn't locate any available unfolded or fo
                 pruned_peaks.append(point)
 
         self._maxima_coordinates = [point[0] for point in pruned_peaks]
-        self._maxima_values = [point[1] for point in pruned_peaks]
+        self._maxima_values = [point[1] for point in pruned_peaks]  
 
 
 if __name__ == "__main__":
@@ -1743,8 +1914,10 @@ if __name__ == "__main__":
     structure = GuestStructure(gala_input)
     for i in range(len(structure.guest_molecules)):
         composition_formula = structure.guest_molecules[i].composition.reduced_formula
-        filename = f"{composition_formula}_binding_sites.cif"
-        structure.guest_molecules[i].write_binding_sites(filename=filename)
+        filename_cif = f"{composition_formula}_binding_sites.cif"
+        filename_xyz = f"{composition_formula}_binding_sites_fractional.xyz"
+        structure.guest_molecules[i].write_binding_sites(filename=filename_cif)
+        structure.guest_molecules[i].write_binding_sites_fractional(filename=filename_xyz)
         directories = structure.guest_molecules[i].Make_Files()
         structure.guest_molecules[i].Make_DL_poly_script(
             gala_input.md_exe, directories, gala_input.directory, ['REVIVE'])

@@ -27,7 +27,9 @@ Authors ...
 >> FASTMC or RASPA? <<
 FASTMC
 >> Absolute path to directory with input files (FIELD + Probability plots)<<
-
+/Users/oliviermarchand/Desktop/Python_Codes/Masters/GALA_v2/Jake/GALA-main/Oli_test_dir/calf-20_data
+>> Maximum Number of Binding sites (Optional, integer) <<
+0
 ------------------------------------------------------------------------------------------
                                 MD Parameters
 >> MD Program Executable <<
@@ -45,9 +47,9 @@ DLPOLY.X
 >> Write folded (T or F) <<
 F
 >> Grid Factors (Required if "Write folded" is True) <<
-
+1 1 1
 >> Write Smoothed (T or F) <<
-F
+T
 ------------------------------------------------------------------------------------------
                                 Probability Plot Selection
 >> The naming scheme for the output file is as followed:
@@ -55,7 +57,7 @@ F
         where X represent the Guest Molecular Formula ex. CO2, N2, CO
             and Y represent the specified sites (found in Field file and in pseudo_potential.def file) ex. Cx, Ox, Nx <<
 >> Provide Guest Molecule Formula delimited by a space ex. CO2 N2 << 
-CO2 N2
+CO2
 >> Provide Sites delimited by a space and grouped by molecule ex. Cx,Ox Nx <<
-Cx,Ox Nx,COM
+Cx,Ox
 ------------------------------------------------------------------------------------------
