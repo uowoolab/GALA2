@@ -16,6 +16,8 @@ import subprocess
 
 import time
 
+import multiprocessing
+
 # Comments Oli
 # I removed the RASPA functions from this version to limit the length of the code.
 # This code will take the FASTmc field file, and the probability plots for each sites in the guest.
@@ -69,6 +71,7 @@ import time
 # TODO clean up github for public and group members
 # ///////////////////////////////////////////////////////////////////////////
 
+
 class GalaInput:
     def __init__(self, dir):
         """
@@ -80,47 +83,83 @@ class GalaInput:
         with open(f'{dir}/GALA.inp', 'r') as f:
             lines = f.readlines()
 
-        # General Input
-        self.method = lines[27].upper().strip('\n')
+        self.directory = dir
 
-        self.directory = lines[29].strip('\n')
-        if self.directory == '':
-            # TODO ADD TO LOG THE DIRECTORY GALA IS RUNNING ON
-            self.directory = dir
-        self.max_number_bs = lines[31].strip('\n')
-        try:
-            self.max_number_bs = int(self.max_number_bs)
-            if self.max_number_bs > 0:
-                pass
-            else:
-                raise ValueError
-        except ValueError:
-            print('Warning: Invalid input. All binding sites will be printed.')
-            self.max_number_bs = float('inf')
-        
-        if not os.path.exists(os.path.join(self.directory, 'GALA_Output')):
-            # TODO ADD TO LOG PATH OF THE OUTPUT DIRECTORY
-            os.mkdir(os.path.join(self.directory, 'GALA_Output'))
-        self.output_directory = os.path.join(self.directory, 'GALA_Output')
+        # General Input
+        self.method = self._get_method(lines[27])
+        self.directory = self._get_directory(lines[29])
+        self.max_number_bs = self._get_max_number_bs(lines[31])
+        self.output_directory = self._get_output_directory()
+
         # MD Parameters
         self.md_exe = lines[35].strip('\n')
         self.md_cutoff = float(lines[37].strip('\n'))
+        self.md_cpu = self._get_md_cpu(lines[39])
+
         # GCMC Analysis Parameters
-        self.gcmc_sigma = float(lines[41].strip('\n'))
-        self.gcmc_radius = float(lines[43].strip('\n'))
-        self.gcmc_cutoff = float(lines[45].strip('\n'))
-        self.gcmc_write_folded = lines[47].strip('\n').upper() == "T"
-        # TODO CHECK IF THIS IS A LIST, TUPLE, OR WHAT IT IS RN
-        self.gcmc_grid_factor = tuple(int(num)
-                            for num in lines[49].strip('[]\n').replace(' ', ''))
-        if self.gcmc_grid_factor == ():
-            # TODO ADD TO LOG THAT THE DEFAULT GRID FACTORS WERE USED
-            self.gcmc_grid_factor = (1, 1, 1)
-        self.gcmc_write_smoothed = lines[51].strip('\n').upper() == "T"
+        self._set_gcmc_parameters(lines)
+
         # Probability Plot Guest and Site Selection
-        self.selected_guest = tuple(lines[59].split())
-        self.selected_site = tuple([group.split(',') if ',' in group else [
-            group] for group in lines[61].split()])
+        self.selected_guest = tuple(lines[62].split())
+        self.selected_site = self._get_selected_site(lines[64])
+
+        # Post Process Cleaning Section
+        self.cleaning = lines[68].strip('\n').upper() == "T"
+
+    def _get_method(self, line):
+        return line.upper().strip('\n')
+
+    def _get_directory(self, line):
+        directory = line.strip('\n')
+        return directory if directory else self.directory
+
+    def _get_max_number_bs(self, line):
+        try:
+            max_number_bs = int(line.strip('\n'))
+            if max_number_bs > 0:
+                return max_number_bs
+            raise ValueError
+        except ValueError:
+            print('Warning: Invalid input. All binding sites will be printed.')
+            return float('inf')
+
+    def _get_output_directory(self):
+        output_directory = os.path.join(self.directory, 'GALA_Output')
+        if not os.path.exists(output_directory):
+            os.mkdir(output_directory)
+        return output_directory
+
+    def _get_md_cpu(self, line):
+        try:
+            md_cpu = int(line.strip('\n'))
+            if md_cpu >= 1:
+                return md_cpu
+            raise ValueError
+        except ValueError:
+            print('Using default CPU allocation for DL Poly calculations')
+            return 1
+
+    def _set_gcmc_parameters(self, lines):
+        self.gcmc_sigma = float(lines[43].strip('\n'))
+        self.gcmc_radius = float(lines[45].strip('\n'))
+        self.gcmc_cutoff = float(lines[47].strip('\n'))
+        self.gcmc_write_folded = lines[49].strip('\n').upper() == "T"
+        self.gcmc_grid_factor = self._get_gcmc_grid_factor(lines[51])
+        print(self.gcmc_grid_factor)
+        self.gcmc_write_smoothed = lines[53].strip('\n').upper() == "T"
+
+    def _get_gcmc_grid_factor(self, line):
+        try:
+            grid_factor = tuple(int(num) for num in line.strip('[]\n').split())
+            if grid_factor:
+                return grid_factor
+            raise ValueError
+        except ValueError:
+            print('Using default grid factor (1,1,1)')
+            return 1, 1, 1
+
+    def _get_selected_site(self, line):
+        return tuple([group.split(',') if ',' in group else [group] for group in line.split()])
 
 
 class GuestStructure:
@@ -1220,92 +1259,64 @@ class GuestMolecule(Molecule):
 
         return individual_directories
 
-    def Make_DL_poly_script(self, EXE, dir, starting_dir, gala_delete_files):
-        """
-        Create a script for running DL_POLY simulations on multiple directories.
-
-        Args:
-            EXE (str): The executable for running DL_POLY.
-            dir (list): A list of directories where DL_POLY simulations will be executed.
-            gala_delete_files (list): A list of files to delete after running DL_POLY.
-
-        Returns:
-            None
-        """
+    def run_simulation(self, directory, EXE, starting_dir, gala_delete_files):
         if 'REVIVE' in gala_delete_files or '*_bs_*' in gala_delete_files:
             rm_line = 'rm REVIVE 2> /dev/null\n'
         else:
             rm_line = ''
-        
-        open(os.path.join(starting_dir, 'DL_POLY.output'), 'a').close()
 
-        gala_script = ["#!/bin/bash\n\n", "export FORT_BUFFERED=true\n\n",
-                    "export OMP_NUM_THREADS=1\n\n"]
-        
-        # TODO Possibly add MD choice such as thread and ram in gala.inp file
-        for directory in dir:
-            gala_script.extend([
-                "pushd %s > /dev/null\n" % directory,
-                "%s >> %s\n" % (EXE, os.path.join(starting_dir, 'DL_POLY.output')),
-                "if [ $? -ne 0 ]; then\n",
-                "    echo 'Error: %s failed in %s directory.'\n" % (EXE, directory),
-                "    exit 1\n",
-                "fi\n",
-                "if [ ! -f STATIS ]; then\n",
-                "    echo 'Error: STATIS file not found in %s directory.'\n" % directory,
-                "    exit 2\n",
-                "fi\n",
-                rm_line,
-                "popd > /dev/null\n"
-            ])
-        gala = open('gala_MD', 'w')
-        gala.writelines(gala_script)
-        gala.close()
-        os.chmod('gala_MD', 0o755)
+        command = f"cd {directory} && {EXE} >> {os.path.join(starting_dir, 'DL_POLY.output')} && {rm_line}"
+        process = subprocess.Popen(command, shell=True, executable='/bin/bash')
+        process.wait()
+
+        if process.returncode != 0:
+            error_message = f"Error: {EXE} failed in {directory} directory with return code {process.returncode}.\n"
+            print(error_message)
+
+            with open(os.path.join(starting_dir, 'DL_POLY.output'), 'a') as f:
+                f.write(error_message)
+
+            return process.returncode
+
+        if not os.path.exists(os.path.join(directory, 'STATIS')):
+            error_message = f"Error: STATIS file not found in {directory} directory.\n"
+            print(error_message)
+
+            with open(os.path.join(starting_dir, 'DL_POLY.output'), 'a') as f:
+                f.write(error_message)
+
+            return 2
+
+        return 0  # return code 0 means success
 
 
-    def Submit_DL_Poly(self, no_submit, bs_directories, starting_dir):
-        """
-        Submit DL_POLY simulations for execution.
-
-        Args:
-            no_submit (bool): If True, skip job submission. Otherwise, submit the job.
-
-        Returns:
-            None
-        """
+    def Submit_DL_Poly(self, no_submit, bs_directories, starting_dir, EXE, gala_delete_files):
         if no_submit:
-            print('info:GALA input files generated; skipping job submission\n')
-        else:
+            print('info: GALA input files generated; skipping job submission\n')
+            return
 
-            # --- Timing ---
-            start_time = time.time()
-            # --- --- ---
+        start_time = time.time()
 
-            # Run the subprocess
-            Submit = subprocess.Popen(['./gala_MD'], stdout=subprocess.PIPE)
-            Submit.wait()
+        with multiprocessing.Pool(processes=self.gala.md_cpu) as pool:
+            results = pool.starmap(self.run_simulation, [(dir, EXE, starting_dir, gala_delete_files) for dir in bs_directories])
 
-            self.check_and_save(bs_directories, starting_dir)
+        self.check_and_save(bs_directories, starting_dir)
 
-            if Submit.returncode == 0:
-                print('DL Poly terminated normally')
-            elif Submit.returncode == 1:
-                raise RuntimeError("Subprocess ./gala_MD encountered an error: DL_POLY.X failed during execution.")
-            elif Submit.returncode == 2:
-                raise RuntimeError("Subprocess ./gala_MD encountered an error: DL_POLY.X completed but the STATIS file was not found.")
+        if all(res == 0 for res in results):
+            print('DL Poly terminated normally')
+        elif any(res == 1 for res in results):
+            raise RuntimeError("Encountered an error: DL_POLY.X failed during execution.")
+        elif any(res == 2 for res in results):
+            raise RuntimeError("Encountered an error: DL_POLY.X completed but the STATIS file was not found.")
 
-            error_file = os.path.join(starting_dir, 'DL_POLY.output')
+        error_file = os.path.join(starting_dir, 'DL_POLY.output')
+        if os.path.getsize(error_file) == 0:
+            os.remove(error_file)
 
-            if os.path.getsize(error_file) == 0:
-                os.remove(error_file)
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+        print(f"DL Poly Subprocesses Elapsed Time: {elapsed_time:.2f} seconds")
 
-            # --- --- ---
-            end_time = time.time()
-            elapsed_time = end_time - start_time
-            print(
-                f"DL Poly Subprocesses Elapsed Time: {elapsed_time:.2f} seconds")
-            # --- --- ---
 
     def check_and_save(self, bs_directories, starting_dir):
         """
@@ -1896,6 +1907,11 @@ Error Message: We apologize, but we couldn't locate any available unfolded or fo
         self._maxima_values = [point[1] for point in pruned_peaks]  
 
 
+def post_gala_cleaning(dir):
+    if os.path.exists(os.path.join(dir, 'DL_poly_BS')):
+        shutil.rmtree(os.path.join(dir, 'DL_poly_BS'))
+
+
 if __name__ == "__main__":
 
     # --- Timing ---
@@ -1910,6 +1926,8 @@ if __name__ == "__main__":
         shutil.rmtree(os.path.join(gala_input.directory, 'DL_poly_BS'))
     else:
         pass
+    
+    
 
     structure = GuestStructure(gala_input)
     for i in range(len(structure.guest_molecules)):
@@ -1919,11 +1937,20 @@ if __name__ == "__main__":
         structure.guest_molecules[i].write_binding_sites(filename=filename_cif)
         structure.guest_molecules[i].write_binding_sites_fractional(filename=filename_xyz)
         directories = structure.guest_molecules[i].Make_Files()
-        structure.guest_molecules[i].Make_DL_poly_script(
-            gala_input.md_exe, directories, gala_input.directory, ['REVIVE'])
-        structure.guest_molecules[i].Submit_DL_Poly(False, directories, gala_input.directory)
+
+        structure.guest_molecules[i].Submit_DL_Poly(
+            False, 
+            directories, 
+            gala_input.directory,
+            gala_input.md_exe,
+            ['REVIVE']
+        )
+
         structure.guest_molecules[i].update_gala(
             os.path.join(gala_input.directory, 'DL_poly_BS'))
+
+    if gala_input.cleaning:
+        post_gala_cleaning(gala_input.directory)
 
     # --- --- ---
     end_time = time.time()
