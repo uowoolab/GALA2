@@ -10,7 +10,7 @@ GALA can be executed manually for small-scale projects or using sbatch for high-
 Ensure that the `GALA.inp` and `GALA_main.py` files are located in the same directory. A well-organized directory structure facilitates an efficient execution process.
 
 <p align="center">
-  <img src="https://github.com/uowoolab/GALA2/blob/main/Images/Small_Scalle_light.svg" alt="Small_Scale_Workflow" width="400"/>
+  <img src="https://github.com/uowoolab/GALA2/blob/main/Images/Small_Scalle_light.svg" alt="Small_Scale_Workflow" width="500"/>
 </p>
 
 #### Execution Steps
