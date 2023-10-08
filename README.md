@@ -33,6 +33,7 @@ Python - 3.9.7
 numpy - 1.20.3
 pymatgen - 2023.8.10
 scipy - 1.7.1
+
 You can install these packages using pip:
 
 ```bash
