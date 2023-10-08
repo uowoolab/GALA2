@@ -1,7 +1,6 @@
 
-
-![UOttawaLogo]() 
 ### GALAV2
+![UOttawaLogo](https://github.com/uowoolab/GALA2/blob/main/Images/UOttawaLogo.png) 
 ---
 #### Guest Atom Localization Algorithm (Work in progress)
 
