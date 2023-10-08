@@ -73,6 +73,7 @@ nano GALA.inp; vim GALA.inp; ...
 ```bash
 python GALA_main.py
 ```
+For more information on how to run GALA please refer to the How_to_GALA file.
 
 ### Input Files
 Required input files:
