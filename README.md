@@ -1,8 +1,8 @@
+<div style="text-align: right;">
+  <img src="https://github.com/uowoolab/GALA2/blob/main/Images/UOttawaLogo.png" alt="UOttawaLogo" width="600" />
+</div>
 
 ### GALAV2
-
-<img src="https://github.com/uowoolab/GALA2/blob/main/Images/UOttawaLogo.png" alt="UOttawaLogo" width="600" style="float:right; background:transparent;"/>
-
 ---
 #### Guest Atom Localization Algorithm (Work in progress)
 
