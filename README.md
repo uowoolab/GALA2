@@ -1,4 +1,4 @@
-<div style="text-align: right;">
+<div style="center">
   <img src="https://github.com/uowoolab/GALA2/blob/main/Images/UOttawaLogo.png" alt="UOttawaLogo" width="600" />
 </div>
 
