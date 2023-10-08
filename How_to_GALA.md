@@ -9,9 +9,7 @@ GALA can be executed manually for small-scale projects or using sbatch for high-
 #### Preparation
 Ensure that the `GALA.inp` and `GALA_main.py` files are located in the same directory. A well-organized directory structure facilitates an efficient execution process.
 
-```markdown
 ![Small_Scale_Workflow](https://github.com/uowoolab/GALA2/blob/main/Images/Small_Scale.svg)
-```
 
 #### Execution Steps
 1. Open the `GALA.inp` file.
@@ -33,9 +31,7 @@ Ensure that the `GALA.inp` and `GALA_main.py` files are located in the same dire
 #### Preparation
 For extensive analysis, utilize sbatch to enable parallel execution and optimize computation time. In this method, leave the absolute path in the `GALA.inp` file empty.
 
-```markdown
 ![Large_Scale_Workflow](https://github.com/uowoolab/GALA2/blob/main/Images/Large_Scale.svg)
-```
 
 #### Execution Steps
 1. Ensure the `GALA_main.py` script is accessible.
