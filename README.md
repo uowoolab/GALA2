@@ -1,6 +1,6 @@
-<div style="center">
-  <img src="https://github.com/uowoolab/GALA2/blob/main/Images/UOttawaLogo.png" alt="UOttawaLogo" width="600" />
-</div>
+<p align="center">
+  <img src="https://github.com/uowoolab/GALA2/blob/main/Images/UOttawaLogo.png" alt="UOttawaLogo" width="500"/>
+</p>
 
 ### GALAV2
 ---
