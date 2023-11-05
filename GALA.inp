@@ -27,9 +27,11 @@ Authors ...
 >> FASTMC or RASPA? <<
 FASTMC
 >> Absolute path to directory with input files (FIELD + Probability plots)<<
-/Users/oliviermarchand/Desktop/Python_Codes/Masters/GALA_v2/Jake/GALA-main/Oli_test_dir/faps_DB0-m3_o15_o20_f0_nbo.sym.58_repeat_fastmc
+
 >> Maximum Number of Binding sites (Optional, integer) <<
-0
+
+>> Maximum Binding sites Energies (Optional, integer) (default == -100 kJ/mol)
+
 ------------------------------------------------------------------------------------------
                                 MD Parameters
 >> MD Program Executable <<
@@ -37,7 +39,7 @@ DLPOLY.X
 >> Cutoff (Angstrom) <<
 12.500000
 >> Dedicated CPU for Paralization of MD Jobs (default == 1) <<
-1
+
 ------------------------------------------------------------------------------------------
                             GCMC Analysis Parameters
 >> Sigma <<
@@ -51,7 +53,7 @@ F
 >> Grid Factors (Required if "Write folded" is True, or if unfolded plots are provided) <<
 
 >> Write Smoothed (T or F) <<
-F
+T
 ------------------------------------------------------------------------------------------
                                 Probability Plot Selection
 >> The naming scheme for the output file is as followed:
@@ -60,9 +62,9 @@ F
             and Y represent the specified sites 
             (found in Field file and in pseudo_potential.def file) ex. Cx, Ox, Nx <<
 >> Provide Guest Molecule Formula delimited by a space ex. CO2 N2 << 
-CO2
+
 >> Provide Sites delimited by a space and grouped by molecule ex. Cx,Ox Nx <<
-Cx,Ox
+
 ------------------------------------------------------------------------------------------
                                 Post Process Cleaning
 >> Remove DL_POLY_BS directory contaning DL poly individual jobs (T or F) <<

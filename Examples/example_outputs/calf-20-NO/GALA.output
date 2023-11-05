@@ -1,0 +1,9 @@
+Warning: Invalid input. All binding sites will be printed.
+Warning: Invalid input. Default binding energy is used.
+Using default grid factor (1,1,1)
+No guest selected, using all guests.
+No site selected, using all sites.
+Looking for probability plot for guest:  NO at site:  Nx
+Attempting to read probability plot: Prob_Guest_NO_Site_Nx_folded.cube
+Looking for probability plot for guest:  NO at site:  Ox
+Attempting to read probability plot: Prob_Guest_NO_Site_Ox_folded.cube

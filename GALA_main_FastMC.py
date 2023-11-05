@@ -2,7 +2,7 @@
 
 import os
 import numpy as np
-from pymatgen.core import Element, IMolecule, Molecule, Lattice, Structure
+from pymatgen.core import Element, Molecule, Structure
 from pymatgen.io.common import VolumetricData
 from pymatgen.util.coord import all_distances
 from scipy.ndimage import gaussian_filter, maximum_filter
@@ -13,63 +13,13 @@ from pymatgen.util.coord import pbc_shortest_vectors
 from pymatgen.io.cif import CifWriter
 import shutil
 import subprocess
-
-import time
-
 import multiprocessing
 
-# Comments Oli
-# I removed the RASPA functions from this version to limit the length of the code.
-# This code will take the FASTmc field file, and the probability plots for each sites in the guest.
-# I modified the naming scheme for the probability plots to that it works on wookie:
-#   >> The naming scheme for the output file is as followed:
-# > Prob_Guest_X_Site_Y_folded.cube
-# > X == Guest, Y == Site
-# To run on wookie I use the 'newgala' env I compiled which is found on my scratch
-# I also module load dl_poly (default dl_poly 1.10)
+import time
+import warnings
+import sys
 
-# TODO Add a log file with key checkpoints?
-# TODO Add code to fold and change probability file names
-# TODO Prunning based off the dl poly data
-# TODO Prunning based off symmetry (before dl poly calculations would be better to shorten the length of the code)
-# TODO Review the standard dl poly folders might only need to run a singular calculation
-# Try TODO implementation of a molecule property for pymatgen (instead of only site_properties)
-# TODO Update pymatgen's supercell structure
-# TODO Optimization (Not sure yet how, but further testing will narrow to sections)
-# TODO Modularization, will have to wait until code is done, too many big changes
-# TODO Return an output file contaning Structure information, guest information, binding sites, binding site energies, maxima peaks/coords.
-# TODO Implement more user options, such as allowing them to name their own folders, wether they want only one output file or all the "temp" files. More will come to mind later on.
-# TODO Make sure we save output files in wanted directory
-# TODO Make sure class, methods and variable names are adequate and consistant. 
-# For example, cell is it cell vectors (3x3 matrix), cell scalars/size (4,3,3), unit cell or supercell vectors, etc (was quite confusing when trying to read through faps and old gala)
-# TODO Expend on guest compatibility
-# TODO TEST with different input files, guests, etc
-
-# TODO No-folded FIELD convert to folded FIELD file, if they want to fold they will require to specify the grid factor
-
-# TODO Better docstring, 
-# TODO Set up how to use documentation
-# ---
-# TODO for Jake
-
-# ---
-
-# Done list
-# ///////////////////////////////////////////////////////////////////////////
-# TODO Add fix from other code for when dummy atoms have no probability plots
-# TODO Rework the Maxima, if not plot given for dummy atom no problem, nut must need plot for atomic sites
-# TODO Add executable absolute path to DL POLY in .inp file 
-# TODO Use cutoff to find minimal grid factor and use that to make supercell for dl poly
-# TODO Grid factor should be computed for the cutoff they want
-# TODO Reorder binding sites from highest occupencies to lowest in xyz
-# TODO normalize each occupencies to 1 so that it is a % of the total occupencies
-# TODO Check to add dl poly output to see if something went wrong
-# TODO Write error instead of print, check if first dl poly ran, (STASIS) if not kill job
-# TODO Max Number of binding site
-# TODO Default cwd directry
-# TODO Default fold factor (1,1,1)
-# TODO clean up github for public and group members
-# ///////////////////////////////////////////////////////////////////////////
+warnings.filterwarnings('ignore', message='No Pauling electronegativity for ')
 
 
 class GalaInput:
@@ -89,22 +39,23 @@ class GalaInput:
         self.method = self._get_method(lines[27])
         self.directory = self._get_directory(lines[29])
         self.max_number_bs = self._get_max_number_bs(lines[31])
+        self.max_bs_energy = self._get_max_bs_energy(lines[33])
         self.output_directory = self._get_output_directory()
 
         # MD Parameters
-        self.md_exe = lines[35].strip('\n')
-        self.md_cutoff = float(lines[37].strip('\n'))
-        self.md_cpu = self._get_md_cpu(lines[39])
+        self.md_exe = lines[37].strip('\n')
+        self.md_cutoff = float(lines[39].strip('\n'))
+        self.md_cpu = self._get_md_cpu(lines[41])
 
         # GCMC Analysis Parameters
         self._set_gcmc_parameters(lines)
 
         # Probability Plot Guest and Site Selection
-        self.selected_guest = tuple(lines[62].split())
-        self.selected_site = self._get_selected_site(lines[64])
+        self.selected_guest = self._get_selected_guest(lines[64])
+        self.selected_site = self._get_selected_site(lines[66])
 
         # Post Process Cleaning Section
-        self.cleaning = lines[68].strip('\n').upper() == "T"
+        self.cleaning = lines[70].strip('\n').upper() == "T"
 
     def _get_method(self, line):
         return line.upper().strip('\n')
@@ -123,6 +74,16 @@ class GalaInput:
             print('Warning: Invalid input. All binding sites will be printed.')
             return float('inf')
 
+    def _get_max_bs_energy(self, line):
+        try:
+            max_bs_energy = float(line.strip('\n'))
+            if max_bs_energy < 0:
+                return max_bs_energy
+            raise ValueError
+        except ValueError:
+            print('Warning: Invalid input. Default binding energy is used.')
+            return float(-100.0)
+
     def _get_output_directory(self):
         output_directory = os.path.join(self.directory, 'GALA_Output')
         if not os.path.exists(output_directory):
@@ -136,17 +97,16 @@ class GalaInput:
                 return md_cpu
             raise ValueError
         except ValueError:
-            print('Using default CPU allocation for DL Poly calculations')
+            print('Using default CPU allocation for DL Poly calculations (CPU = 1)')
             return 1
 
     def _set_gcmc_parameters(self, lines):
-        self.gcmc_sigma = float(lines[43].strip('\n'))
-        self.gcmc_radius = float(lines[45].strip('\n'))
-        self.gcmc_cutoff = float(lines[47].strip('\n'))
-        self.gcmc_write_folded = lines[49].strip('\n').upper() == "T"
-        self.gcmc_grid_factor = self._get_gcmc_grid_factor(lines[51])
-        print(self.gcmc_grid_factor)
-        self.gcmc_write_smoothed = lines[53].strip('\n').upper() == "T"
+        self.gcmc_sigma = float(lines[45].strip('\n'))
+        self.gcmc_radius = float(lines[47].strip('\n'))
+        self.gcmc_cutoff = float(lines[49].strip('\n'))
+        self.gcmc_write_folded = lines[51].strip('\n').upper() == "T"
+        self.gcmc_grid_factor = self._get_gcmc_grid_factor(lines[53])
+        self.gcmc_write_smoothed = lines[55].strip('\n').upper() == "T"
 
     def _get_gcmc_grid_factor(self, line):
         try:
@@ -158,8 +118,20 @@ class GalaInput:
             print('Using default grid factor (1,1,1)')
             return 1, 1, 1
 
+    def _get_selected_guest(self, line):
+        selected_guest = tuple(line.split())
+        if not selected_guest:
+            print("No guest selected, using all guests.")
+            selected_guest = "ALL"  # You can replace "ALL" with a method to get all guests if needed
+        return selected_guest
+
     def _get_selected_site(self, line):
-        return tuple([group.split(',') if ',' in group else [group] for group in line.split()])
+        selected_site = tuple([group.split(',') if ',' in group else [
+                              group] for group in line.split()])
+        if not any(selected_site):
+            print("No site selected, using all sites.")
+            selected_site = "ALL"  # You can replace "ALL" with a method to get all sites if needed
+        return selected_site
 
 
 class GuestStructure:
@@ -176,13 +148,13 @@ class GuestStructure:
         self._structure_name = None
 
         if self.method == 'FASTMC':
-            guests_chemical_structure, guests_atoms_coordinates, guest_sites_labels, site_data_unfilted, site_data = self.parse_fastmc()
-
+            (guests_chemical_structure, guests_atoms_coordinates, guest_sites_labels,
+             site_data_unfilted, site_data, k), guest_reduced = self.parse_fastmc()
             self.guest_molecules = []
 
-            for element, sites_labels, coordinate, molecule_site_data_unfilted, molecule_site_data in zip(guests_chemical_structure, guest_sites_labels, guests_atoms_coordinates, site_data_unfilted, site_data):
+            for str_guest, element, sites_labels, coordinate, molecule_site_data_unfilted, molecule_site_data in zip(guest_reduced, guests_chemical_structure, guest_sites_labels, guests_atoms_coordinates, site_data_unfilted, site_data):
                 guest_molecule = GuestMolecule(
-                    species=element, sites_labels_save=sites_labels, coords=coordinate, sites_data_unfilted=molecule_site_data_unfilted, sites_data=molecule_site_data, structure_name=self._structure_name, gala_instance=self.gala)
+                    species=element, sites_labels_save=sites_labels, coords=coordinate, str_guest=str_guest, sites_data_unfilted=molecule_site_data_unfilted, sites_data=molecule_site_data, structure_name=self._structure_name, gala_instance=self.gala)
                 self.guest_molecules.append(guest_molecule)
 
         else:
@@ -258,11 +230,10 @@ class GuestStructure:
                     current_guest = reset_current_guest()
         guests_reduced, elements, dummy_atoms = self.post_process_guests(
             guests)
-
         selected_guests = self.select_guests(
             guests, guests_reduced, elements, dummy_atoms)
-
-        return selected_guests
+        
+        return selected_guests, guests_reduced
 
     def process_atom(self, line):
         """
@@ -321,10 +292,18 @@ class GuestStructure:
         """
         guests_reduced = []
         for guest in guests:
-            guests_reduced.append(Molecule(
-                guest['valid_labels'], guest['coordinates']).composition.reduced_formula)
+            guest_molecule_object = Molecule(
+                guest['valid_labels'], guest['coordinates']).composition
 
-        elements = [str(e) for e in Element]
+            if guest_molecule_object.get_reduced_composition_and_factor()[1] == 1:
+                guests_reduced.append(guest_molecule_object.reduced_formula)
+
+            else:
+                guests_reduced.append(
+                    str(guest_molecule_object).replace(' ', ''))
+   
+        elements = [label for d in guests for label in d['valid_labels']]
+
         dummy_atoms = set(
             species for guest in guests for species in guest['species'] if species not in elements)
         return guests_reduced, elements, dummy_atoms
@@ -342,26 +321,39 @@ class GuestStructure:
         Returns:
             tuple: Tuple containing the valid labels, coordinates, species, and site data of the selected guests.
         """
-        selected_guest_indices = [guests_reduced.index(
-            guest) for guest in self.gala.selected_guest]
+        if self.gala.selected_guest != 'ALL':
+            selected_guest_indices = [guests_reduced.index(
+                guest) for guest in self.gala.selected_guest]
+        else:
+            selected_guest_indices = [guests_reduced.index(
+                guest) for guest in guests_reduced]
+            selected_guest = (guests_reduced)
+
+        # Initialize the lists outside the loop:
+        selected_guests_list = []
         valid_labels = []
         coordinates = []
         species = []
-        site_data = []
         site_data_unfilted = []
+        site_data = []
 
         for i in selected_guest_indices:
             selected_guest = {k: guests[i][k] for k in (
                 'valid_labels', 'coordinates', 'species', 'site_data')}
             selected_guest['site_data_unfilted'], selected_guest['site_data'] = self.filter_site_data(
                 selected_guest['site_data'], i, elements, dummy_atoms)
+
+            # Append to the lists:
             valid_labels.append(selected_guest['valid_labels'])
             coordinates.append(selected_guest['coordinates'])
             species.append(selected_guest['species'])
             site_data_unfilted.append(selected_guest['site_data_unfilted'])
             site_data.append(selected_guest['site_data'])
 
-        return valid_labels, coordinates, species, site_data_unfilted, site_data
+            # Add selected_guest to the list of lists:
+            selected_guests_list.append(selected_guest)
+
+        return valid_labels, coordinates, species, site_data_unfilted, site_data, selected_guests_list
 
     def filter_site_data(self, site_data, i, elements, dummy_atoms):
         """
@@ -376,9 +368,17 @@ class GuestStructure:
         Returns:
             list: Filtered site data.
         """
-
-        filtered_site_data = [data for data in site_data if data[0] in self.gala.selected_site[i]
-                              or data[1] not in elements and any(dummy in self.gala.selected_site[i] for dummy in dummy_atoms)]
+        if self.gala.selected_site != 'ALL':
+            filtered_site_data = [
+                data for data in site_data
+                if data[0] in self.gala.selected_site[i]
+                or (data[1] not in elements and any(dummy in self.gala.selected_site[i] for dummy in dummy_atoms))
+            ]
+        else:
+            filtered_site_data = [
+                data for data in site_data
+                if data[0] in dummy_atoms
+            ]
 
         return filtered_site_data, self.group_site_data(filtered_site_data)
 
@@ -404,7 +404,7 @@ class GuestStructure:
 
 
 class GuestMolecule(Molecule):
-    def __init__(self, species, sites_labels_save, coords, sites_data_unfilted=None, sites_data=None, structure_name=None, gala_instance=None, charge=None, spin_multiplicity=None, site_properties=None, charge_spin_check=None):
+    def __init__(self, species, sites_labels_save, coords, str_guest, sites_data_unfilted=None, sites_data=None, structure_name=None, gala_instance=None, charge=None, spin_multiplicity=None, site_properties=None, charge_spin_check=None):
         """
         Initialize the GuestMolecule class with the specified species, coordinates, sites_data, and GALA instance.
 
@@ -415,21 +415,23 @@ class GuestMolecule(Molecule):
             gala_instance (GalaInput): Instance of the GalaInput class.
         """
         super().__init__(species, coords)
+
         self.guest_molecule_data = Molecule(
             species=[i[1] for i in sites_data_unfilted],
             coords=[i[2] for i in sites_data_unfilted],
             labels=[i[0] for i in sites_data_unfilted],
-            site_properties={'elements': [i[1] for i in sites_data_unfilted], 'charges': [
+            site_properties={'elements': [i[1] for i in sites_data_unfilted], 'sites_label': [i[0] for i in sites_data_unfilted], 'charges': [
                 i[3] for i in sites_data_unfilted]}
         )
+
+        self.formula_property = str_guest
         self.structure_name = structure_name
         self.gala = gala_instance
         self.guest_sites = None
         self.sites_labels_save = sites_labels_save
         if sites_data is not None:
-            self.guest_sites = [GuestSites(*site_data, parent_molecule=self)
+            self.guest_sites = [GuestSites(*site_data, parent_molecule=self.formula_property, gala_instance=gala_instance)
                                 for site_data in sites_data]
-
         self._binding_sites = None
         self._binding_sites_cart = None
         self._binding_site_maxima = None
@@ -443,8 +445,9 @@ class GuestMolecule(Molecule):
         Returns:
             str: String representation of the GuestMolecule object.
         """
+
         return "Molecule: {}\nMolecule Coordinates:\n{}\nSites:\n{}".format(
-            self.composition.reduced_formula,
+            self.formula_property,
             np.array(self.cart_coords),
             '\n'.join(f"Site {i+1}: {sites}" for i, sites in enumerate(map(str, self.guest_sites))))
 
@@ -557,13 +560,17 @@ class GuestMolecule(Molecule):
 
             # If we have more than one atom to align
             align_key = guest_atom_distances[1][2]
+
             # Why are we choosing 999.9 as the comparison point lol?
             align_closest = (999.9, None)
             align_found = False
+
             for align_atom_max, align_atom_max_value in zip(sites[align_key].maxima_cartesian_coordinates,
                                                             sites[align_key]._maxima_values):
-                if np.all(align_atom_max == central_max):
+
+                if align_atom_max == central_max:
                     continue
+
                 # Distance vector and distance between central site and alignment site
                 vector_0_1 = pbc_shortest_vectors(get_struct.lattice,
                                                   get_struct.lattice.get_fractional_coords(
@@ -576,14 +583,13 @@ class GuestMolecule(Molecule):
                 align_overlap = abs(separation_0_1 - distances['0_1'])
 
                 if align_overlap < align_closest[0]:
-
                     align_closest = (align_overlap, align_atom_max)
+
                 if align_overlap < overlap_tol:
                     align_found = True
 
                     # If we only have a two atom guest
                     if '0_2' not in distances:
-
                         binding_sites.append([
                             (guest_atom_distances[0][1],
                              central_max, central_max_value),
@@ -618,12 +624,12 @@ class GuestMolecule(Molecule):
                         overlap_1_2 = abs(separation_1_2 - distances['1_2'])
 
                         # This is the new closest orientation
-                        if overlap_0_2 + 0.5*overlap_1_2 < orient_closest[0]:
+                        if overlap_0_2 + 0.5 * overlap_1_2 < orient_closest[0]:
                             orient_closest = (
-                                overlap_0_2 + 0.5*overlap_1_2, orient_atom_max)
+                                overlap_0_2 + 0.5 * overlap_1_2, orient_atom_max)
 
                         # If we find two aligning sites within tolerance (multiple of 2 since we are fitting two sites)
-                        if overlap_0_2 < overlap_tol and overlap_1_2 < 2*overlap_tol:
+                        if overlap_0_2 < overlap_tol and overlap_1_2 < 2 * overlap_tol:
                             found_site = True
                             # Add all three sites
                             binding_sites.append([
@@ -631,7 +637,7 @@ class GuestMolecule(Molecule):
                                     central_max,
                                     central_max_value),
                                 (guest_atom_distances[1][1], vector_0_1),
-                                (guest_atom_distances[2][1], vector_0_2)])
+                                (guest_atom_distances[1][1], vector_0_2)])
 
                     if not found_site:
                         binding_sites.append([
@@ -639,34 +645,36 @@ class GuestMolecule(Molecule):
                                 central_max,
                                 central_max_value),
                             (guest_atom_distances[1][1], vector_0_1),
-                            (guest_atom_distances[2][1], vector_0_2)])
+                            (guest_atom_distances[1][1], vector_0_2)])
 
-                else:
-                    if '0_2' not in distances and align_closest[0] > distances['0_1']:
-                        # Very isolated atom, not within 2 distances of any others
-                        # treat as isolated point atom and still make a guest
-                        binding_sites.append(
-                            [(guest_atom_distances[0][1], central_max, central_max_value)])
-       
+            else:
+                if '0_2' not in distances and align_closest[0] > distances['0_1']:
+                    # Very isolated atom, not within 2 distances of any others
+                    # treat as isolated point atom and still make a guest
+                    binding_sites.append(
+                        [(guest_atom_distances[0][1], central_max, central_max_value)])
+
         binding_sites = self.remove_duplicates_and_inverses(binding_sites)
-        binding_sites = sorted(binding_sites, key=lambda x: x[0][2], reverse=True)
+        binding_sites = sorted(
+            binding_sites, key=lambda x: x[0][2], reverse=True)
 
         if self.gala.max_number_bs != float('inf'):
             if len(binding_sites) > self.gala.max_number_bs:
                 binding_sites = binding_sites[:self.gala.max_number_bs]
             elif len(binding_sites) < self.gala.max_number_bs:
-                print("Less binding sites found than requested, proceeding with all binding sites")
+                print(
+                    "Less binding sites found than requested, proceeding with all binding sites")
 
         for site in binding_sites:
             occupancy = site[0][2]
             occupancies.append(occupancy)
-
             include_guests = [
                 [str(element.symbol) for element in self.guest_molecule_data.species], [str(element) for element in self.guest_molecule_data.labels], self.aligned_to(*site)]
             cleaned_binding_site.append(include_guests)
-   
-        self.guest_molecule_data.add_site_property('elemental_binding_site', [list(
-            row) for row in zip(*[i[2] for i in cleaned_binding_site])])
+
+        if len(binding_sites) != 0:
+            self.guest_molecule_data.add_site_property('elemental_binding_site', [list(
+                row) for row in zip(*[i[2] for i in cleaned_binding_site])])
 
         self._binding_site_maxima = binding_sites
         self._binding_sites = self.remove_duplicates(cleaned_binding_site)
@@ -729,7 +737,6 @@ class GuestMolecule(Molecule):
                            np.array_equal(np.abs(reversed_site[2][1]), np.abs(unique_site[2][1])) for unique_site in unique_sites):
                     unique_sites.append(site)
         return list(reversed(unique_sites))
-    
 
     def remove_duplicates(self, lst):
         """
@@ -746,8 +753,8 @@ class GuestMolecule(Molecule):
         """
         seen = set()
         return [
-            seen.add(tuple(map(tuple, item[2]))) or item 
-            for item in lst 
+            seen.add(tuple(map(tuple, item[2]))) or item
+            for item in lst
             if tuple(map(tuple, item[2])) not in seen
         ]
 
@@ -766,17 +773,16 @@ class GuestMolecule(Molecule):
         Returns:
             list: A list of fractional coordinates representing the aligned and oriented guest positions.
         """
-
         get_struct = self.get_cube_structure
         target_idx, target = target[0], target[1]
         target_guest = self.cart_coords[target_idx]
         guest_position = [[x - y for x, y in zip(atom, target_guest)]
                           for atom in self.guest_molecule_data.cart_coords]
-
         if align is not None:
             align_idx, align = align
 
             align_guest = guest_position[align_idx]
+
             rotate = self.matrix_rotate(align_guest, align)
             guest_position = [np.dot(rotate, pos) for pos in guest_position]
 
@@ -822,7 +828,7 @@ class GuestMolecule(Molecule):
         return np.array([[c + h*v[0]*v[0], h*v[0]*v[1] - v[2], h*v[0]*v[2] + v[1]],
                         [h*v[0]*v[1] + v[2], c + h*v[1]*v[1], h*v[1]*v[2] - v[0]],
                         [h*v[0]*v[2] - v[1], h*v[1]*v[2] + v[0], c + h*v[2]*v[2]]])
-    
+
     def write_binding_sites_fractional(self, filename):
         cell_vectors = self.get_cube_structure.lattice.matrix
 
@@ -842,7 +848,6 @@ class GuestMolecule(Molecule):
                     this_point.append(
                         "%12.6f %12.6f %12.6f\n" % tuple(coords))
                 f.writelines(this_point)
-
 
     def write_binding_sites(self, filename):
         """
@@ -867,6 +872,10 @@ class GuestMolecule(Molecule):
         self.structure_with_sites = structure_with_sites
         CifWriter(structure_with_sites).write_file(
             os.path.join(self.gala.output_directory, filename))
+    
+    def write_guest_info(self, filename):
+        with open(os.path.join(self.gala.output_directory, filename), 'w') as f:
+            f.write(str(self))
 
     def mk_dl_poly_control(self, cutoff, dummy=False):
         """CONTROL file for binding site energy calculation."""
@@ -935,8 +944,8 @@ class GuestMolecule(Molecule):
             *site_lines
         ]
 
-        with open(output_file, 'w') as file:
-            file.write('\n'.join(content))
+        with open(output_file, 'w') as f:
+            f.write('\n'.join(content))
 
     def split_and_recreate_supercell(self, supercell_data, grid_factors):
         """
@@ -979,8 +988,8 @@ class GuestMolecule(Molecule):
             int or None: The number of molecular types if found, or None if not found.
         """
         target_phrase = 'molecular types'
-        with open(file_path, 'r') as file:
-            for line in file:
+        with open(file_path, 'r') as f:
+            for line in f:
                 if target_phrase in line:
                     return int(line.split()[-1])
         return None
@@ -1047,6 +1056,55 @@ class GuestMolecule(Molecule):
         # Return the header and the valid VDW interactions
         return [vdw_header] + vdw_data
 
+    def add_dummy_site_to_field(self, field):
+        # Read the contents of the FIELD file
+        with open(field, 'r') as file:
+            lines = file.readlines()
+
+        # Check if 'DUM' already exists in the file
+        if any("DUM" in line for line in lines):
+            # 'DUM' already exists, so we don't add it again
+            return
+
+        # Find the line index for the "ATOMS" section for "&guest" molecular type
+        atoms_index = -1
+        for i, line in enumerate(lines):
+            if '&guest' in line:
+                # Assuming the "ATOMS" line always comes within the next 10 lines
+                for j in range(i+1, min(i+10, len(lines))):
+                    if 'ATOMS' in lines[j]:
+                        atoms_index = j
+                        break
+                break
+
+        if atoms_index == -1:
+            raise ValueError("Could not find an 'ATOMS' line in the '&guest' molecular type section")
+
+        # Update the ATOMS count
+        atoms_line_parts = lines[atoms_index].split()
+        atoms_count = int(atoms_line_parts[1])
+        atoms_count += 1  # Increment the count to account for the dummy atom
+        lines[atoms_index] = f"{atoms_line_parts[0]} {atoms_count}\n"
+
+        # Insert the dummy site line after the updated ATOMS line
+        dummy_line = "DUM    0.0000000    0.000000    1    0\n"
+        lines.insert(atoms_index + 2, dummy_line)  # +2 to insert after the next line which usually has the details
+
+        # Write the updated content back to the FIELD file
+        with open(field, 'w') as file:
+            file.writelines(lines)
+
+
+    def add_dummy_site_to_config(self, site_info_list):
+        # Extract the existing site's information
+        index, label, x, y, z = site_info_list[0]
+        # Create a new site with the index incremented by 1 and the label set to 'DUM'
+        dummy_site = [index + 1, 'DUM', x, y, z]
+        # Append the new dummy site to the list
+        site_info_list.append(dummy_site)
+        return site_info_list
+
+
     def create_field_files(self, desired_sites, directory):
         """
         Create FIELD files for DL_POLY based on desired binding sites.
@@ -1061,6 +1119,7 @@ class GuestMolecule(Molecule):
         with open(os.path.join(self.gala.directory, 'FIELD'), "r") as f:
             header = [f.readline(), f.readline()]
             molecular_types = int(f.readline().split()[2])
+        
             guests = []
 
             # Extract guests' data
@@ -1105,6 +1164,8 @@ class GuestMolecule(Molecule):
                 lines[index - 1] = "molecular types 2\n"
                 lines[index + 1] = "NUMMOLS 1\n"
                 continue
+            
+            
 
             if in_guest_section:
                 if "ATOMS" in line:
@@ -1120,7 +1181,7 @@ class GuestMolecule(Molecule):
                             lines[atom_idx] = "    ".join(parts) + "\n"
                         atom_idx += 1
                     in_guest_section = False
-            
+
             if "Framework" in line:
                 in_framework = True
                 lines[index + 1] = f"NUMMOLS {nummol_framework}\n"
@@ -1128,7 +1189,7 @@ class GuestMolecule(Molecule):
 
         with open(file_path, 'w') as f:
             f.writelines(lines)
-
+   
     def _create_directory_structure(self, root_dir, sub_dir_name):
         """Create a directory structure and return the path."""
         dir_path = os.path.join(root_dir, sub_dir_name)
@@ -1161,18 +1222,22 @@ class GuestMolecule(Molecule):
         """
         cut = self.gala.md_cutoff
         field_path = os.path.join(self.gala.directory, 'FIELD')
-        
+
         # Extract number of molecules
         num_value = 0
-        with open(field_path, 'r') as file:
+        with open(field_path, 'r') as f:
             found_framework = False
-            for line in file:
+            for line in f:
                 if found_framework and line.startswith('NUMMOLS'):
                     _, num_value = line.split()
                     num_value = int(num_value)
                     break
                 elif line.strip() == 'Framework':
                     found_framework = True
+   
+        if len(site_info_list) == 1:
+            site_info_list = self.add_dummy_site_to_config(site_info_list)
+            guest_idx = guest_idx + 1
 
         for idx, site in enumerate(cell.sites):
             element = site.species_string
@@ -1187,7 +1252,7 @@ class GuestMolecule(Molecule):
             os.chdir(directory)
             # symlink on FIELD to save space
             zero_directory = "%s_bs_%04d" % (
-                self.composition.reduced_formula, 0)
+                self.formula_property, 0)
             self.try_symlink(os.path.join('..', zero_directory, 'FIELD'),
                              'FIELD')
             self.try_symlink(os.path.join('..', zero_directory, 'CONTROL'),
@@ -1203,8 +1268,14 @@ class GuestMolecule(Molecule):
                     directory, 'FIELD'), number_of_cell_framework, is_empty=standard)
             with open(os.path.join(directory, "CONTROL"), "w") as control:
                 control.writelines(self.mk_dl_poly_control(cut))
+            control.close()
         else:
             print('Error - FIELD file missing')
+        
+        if len(binding_site_atoms) == 1:
+            binding_site_atoms.append('DUM')
+            self.add_dummy_site_to_field(os.path.join(directory, 'FIELD'))
+        
 
     def Make_Files(self):
         """
@@ -1213,9 +1284,13 @@ class GuestMolecule(Molecule):
         Returns:
             list: A list of individual directories created for DL_POLY simulations.
         """
+
         binding_sites = self._binding_sites_cart
-        guest = self.composition.reduced_formula
-        fold_factor = self.minimum_supercell(cell=self.get_cube_structure.lattice.matrix, cutoff=self.gala.md_cutoff)
+        if len(binding_sites) == 0:
+            sys.exit('GALA process concluded successfully - no binding sites were identified.')
+        guest = self.formula_property
+        fold_factor = self.minimum_supercell(
+            cell=self.get_cube_structure.lattice.matrix, cutoff=self.gala.md_cutoff)
         repeated_cell_number = np.prod(fold_factor)
         unitcell = self.get_cube_structure.copy()
         os.chdir(self.gala.directory)
@@ -1238,7 +1313,8 @@ class GuestMolecule(Molecule):
         individual_directories.append(no_bs_directory)
         binding_site = binding_sites[0]
         binding_site_ = binding_site.copy()
-        arbitrary_location = [np.array([i, 0, 0]) for i in range(len(binding_site_[-1]))]
+        arbitrary_location = [np.array([i, 0, 0])
+                              for i in range(len(binding_site_[-1]))]
         binding_site_[-1] = arbitrary_location
         site_info_list = []
         site_info_list, guest_idx = self._gather_site_info(binding_site_)
@@ -1275,7 +1351,7 @@ class GuestMolecule(Molecule):
 
             with open(os.path.join(starting_dir, 'DL_POLY.output'), 'a') as f:
                 f.write(error_message)
-
+  
             return process.returncode
 
         if not os.path.exists(os.path.join(directory, 'STATIS')):
@@ -1289,7 +1365,6 @@ class GuestMolecule(Molecule):
 
         return 0  # return code 0 means success
 
-
     def Submit_DL_Poly(self, no_submit, bs_directories, starting_dir, EXE, gala_delete_files):
         if no_submit:
             print('info: GALA input files generated; skipping job submission\n')
@@ -1298,16 +1373,19 @@ class GuestMolecule(Molecule):
         start_time = time.time()
 
         with multiprocessing.Pool(processes=self.gala.md_cpu) as pool:
-            results = pool.starmap(self.run_simulation, [(dir, EXE, starting_dir, gala_delete_files) for dir in bs_directories])
+            results = pool.starmap(self.run_simulation, [(
+                dir, EXE, starting_dir, gala_delete_files) for dir in bs_directories])
 
         self.check_and_save(bs_directories, starting_dir)
 
         if all(res == 0 for res in results):
             print('DL Poly terminated normally')
         elif any(res == 1 for res in results):
-            raise RuntimeError("Encountered an error: DL_POLY.X failed during execution.")
+            raise RuntimeError(
+                "Encountered an error: DL_POLY.X failed during execution.")
         elif any(res == 2 for res in results):
-            raise RuntimeError("Encountered an error: DL_POLY.X completed but the STATIS file was not found.")
+            raise RuntimeError(
+                "Encountered an error: DL_POLY.X completed but the STATIS file was not found.")
 
         error_file = os.path.join(starting_dir, 'DL_POLY.output')
         if os.path.getsize(error_file) == 0:
@@ -1317,27 +1395,30 @@ class GuestMolecule(Molecule):
         elapsed_time = end_time - start_time
         print(f"DL Poly Subprocesses Elapsed Time: {elapsed_time:.2f} seconds")
 
-
     def check_and_save(self, bs_directories, starting_dir):
         """
         For each directory in bs_directories, checks for the presence of file1.
         If file1 does not exist, checks for file2 and saves its last 5 lines to output_name.
         """
         for dir_name in bs_directories:
-            statis_path = os.path.join(starting_dir, 'DL_poly_BS', dir_name, 'STATIS')
-            output_path = os.path.join(starting_dir, 'DL_poly_BS', dir_name, 'OUTPUT')
+            statis_path = os.path.join(
+                starting_dir, 'DL_poly_BS', dir_name, 'STATIS')
+            output_path = os.path.join(
+                starting_dir, 'DL_poly_BS', dir_name, 'OUTPUT')
             error_file_path = os.path.join(starting_dir, 'DL_POLY.output')
 
             if not os.path.exists(statis_path) and os.path.exists(output_path):
                 with open(output_path, 'r') as output:
                     lines = output.readlines()[-4:]
+                output.close()
 
                 with open(error_file_path, 'a') as error_file:
                     error_file.write(os.path.basename(dir_name) + "\n")
-                    error_file.write("\n".join([line.strip() for line in lines if line.strip()]) + "\n")
-                
-                return
+                    error_file.write(
+                        "\n".join([line.strip() for line in lines if line.strip()]) + "\n")
+                error_file.close()
 
+                return
 
     def minimum_image(self, atom1, atom2, box):
         """
@@ -1391,7 +1472,7 @@ class GuestMolecule(Molecule):
         volume = np.dot(cell[0], b_cross_c)
 
         return volume / min(np.linalg.norm(b_cross_c), np.linalg.norm(c_cross_a), np.linalg.norm(a_cross_b))
-    
+
     def minimum_supercell(self, cell, cutoff):
         """Calculate the smallest supercell with a half-cell width cutoff."""
         a_cross_b = np.cross(cell[0], cell[1])
@@ -1402,7 +1483,7 @@ class GuestMolecule(Molecule):
 
         widths = [volume / np.linalg.norm(b_cross_c),
                   volume / np.linalg.norm(c_cross_a),
-                  volume / np.linalg.norm(a_cross_b)]     
+                  volume / np.linalg.norm(a_cross_b)]
 
         return tuple(int(np.ceil(2*cutoff/x)) for x in widths)
 
@@ -1433,14 +1514,15 @@ class GuestMolecule(Molecule):
         Returns:
             None
         """
-        guest = self.composition.reduced_formula
+        guest = self.formula_property
         startdir = gala_input.directory
         os.chdir(filepath)
-        
+
         if os.path.exists(os.path.join(filepath, f'{self.structure_name}_{guest}', 'STATIS')):
-                statis = open(os.path.join(filepath, f'{self.structure_name}_{guest}', 'STATIS')).readlines()
-                empty_esp = float(statis[3].split()[4])
-        
+            statis = open(os.path.join(
+                filepath, f'{self.structure_name}_{guest}', 'STATIS')).readlines()
+            empty_esp = float(statis[3].split()[4])
+
         highest_occupency = self._binding_site_maxima[0][0][2]
 
         for directories in os.listdir():
@@ -1495,6 +1577,9 @@ class GuestMolecule(Molecule):
 
                     # For now, put (atom, dummy) in here
                     positions = []
+                    # Prepare lists to collect atom data
+                    fractional_data = []
+                    position_data = []
 
                     for atom, ratom in zip(self.guest_molecule_data.site_properties['elements'], revcon):
                         try:
@@ -1510,60 +1595,62 @@ class GuestMolecule(Molecule):
                             e_vdw = float('nan')
                             e_esp = float('nan')
 
-                        dummy = self.guest_molecule_data.copy()
-
-                        # create with the fractional, so position matches
-                        dummy.add_site_property(
-                            'fractional', [x % 1.0 for x in np.dot(cell_data[2], dummy_pos)])
-                        self.guest_molecule_data.add_site_property('fractional', [x % 1.0 for x in np.dot(
-                            cell_data[2], self.guest_molecule_data.cart_coords)])
-
-                        # Put dummy nearest to first atom, if it exists
+                        fractional = [x % 1.0 for x in np.dot(
+                            cell_data[2], dummy_pos)]
+                        fractional_data.append(fractional)
                         if positions:
-                            dummy.add_site_property('pos', self.minimum_image(positions[0][1], dummy,
-                                                    cell_data[0]))
-                            positions.append((atom, dummy))
+                            position = self.minimum_image(
+                                positions[0][1], dummy, cell_data[0])
                         else:
-                            # ensure anchor is within the unit cell
-                            dummy.add_site_property('pos', np.dot(
-                                dummy.site_properties['fractional'], cell_data[0]))
-                            positions.append((atom, dummy))
-                    # Extract the information we need from the tuples
-                    positions = [(atom, dummy.site_properties['pos'])
-                                 for atom, dummy in positions]
-                    
-                    percentage_occupancy = (magnitude / highest_occupency) * 100
+                            position = np.dot(fractional, cell_data[0])
+                        position_data.append(position)
+
+                    # Post-loop processing
+                    # Create a copy of the guest molecule data and add the calculated site properties
+                    dummy = self.guest_molecule_data.copy()
+                    dummy.add_site_property('fractional', fractional_data)
+                    dummy.add_site_property('pos', position_data)
+
+                    # Extract atom types and positions
+                    positions = [(label, atom, pos) for label, atom, pos in zip(
+                        self.guest_molecule_data.site_properties['sites_label'], self.guest_molecule_data.site_properties['elements'], position_data)]
+
+                    percentage_occupancy = (
+                        magnitude / highest_occupency) * 100
 
                     # print("info:Binding site %i: %f kcal/mol, %.2f%% occupancy\n" %
-                    #       (bs_idx, (e_vdw+e_esp), percentage_occupancy))
-                    
+                    #         (bs_idx, (e_vdw+e_esp), percentage_occupancy))
+
                     binding_energies.append(
                         [percentage_occupancy, e_vdw, e_esp, positions])
-                
+
                 with open(os.path.join(self.gala.output_directory, '%s_gala_binding_sites.xyz' % guest), 'w') as gala_out:
+                    energy_cutoff = gala_input.max_bs_energy
                     frame_number = 0
                     for idx, bind in enumerate(binding_energies):
-                        
                         energy = bind[1] + bind[2]
-                        if energy > 0 or energy != energy:
+    
+                        if np.isnan(energy) or energy <= energy_cutoff or energy > 0:
                             continue
-
+          
                         pc_elec = 100*bind[2]/energy
-              
+
                         this_point = [
                             "%i\n" % len(bind[3]),  # number of atoms
                             # idx, energy, %esp, e_vdw, e_esp, magnitude
                             " BS: %i, Frame: %i, Ebind= %f, esp= %.2f%%, Evdw= %f, "
                             "Eesp= %.2f, occ= %.2f%%\n" %
                             (idx, frame_number, energy, pc_elec, bind[1], bind[2],
-                             bind[0])]
+                                bind[0])]
                         for atom in bind[3]:
                             this_point.append("%-5s " % atom[0])
+                            this_point.append("%-5s " % atom[1])
                             this_point.append(
-                                "%12.6f %12.6f %12.6f\n" % tuple(atom[1]))
+                                "%12.6f %12.6f %12.6f\n" % tuple(atom[2]))
                         gala_out.writelines(this_point)
                         frame_number += 1
-        
+                gala_out.close()
+
         os.chdir(startdir)
 
 
@@ -1571,7 +1658,7 @@ class GuestSites:
 
     all_structure = []
 
-    def __init__(self, label, element, coords, charge, parent_molecule):
+    def __init__(self, label, element, coords, charge, parent_molecule, gala_instance):
         """
         Initialize the Guest_Sites class with the specified label, element, coordinates, charge, and parent molecule.
 
@@ -1587,7 +1674,7 @@ class GuestSites:
         self.coords = coords
         self.charge = charge
         self.parent_molecule = parent_molecule
-        self.gala = parent_molecule.gala
+        self.gala = gala_instance
         GuestSites.all_structure.append(self)
         self._structure = None
         self.cube = None
@@ -1595,7 +1682,6 @@ class GuestSites:
         self._maxima = None
         self._maxima_coordinates = None
         self._maxima_values = None
-
 
     def __str__(self):
         """
@@ -1626,7 +1712,7 @@ class GuestSites:
                 self.calculate_maxima()
 
             maxima_coords, maxima_values = self._maxima_coordinates, self._maxima_values
-            
+
             if maxima_coords == ['N/A']:
                 fractional_coords = ['N/A']
             elif maxima_coords is not None:
@@ -1639,9 +1725,9 @@ class GuestSites:
             for i, (coords, value) in enumerate(zip(maxima_coords, maxima_values), start=1):
                 if coords != 'N/A':
                     maxima_info += f"\tMaxima {i}: Value: {value}\n\t\t  Cartesian Coordinates: {list(coords)}\n\t\t  Fractional Coordinates: {list(fractional_coords[i-1])}\n"
-                else: 
+                else:
                     maxima_info += f"\tMaxima {i}: Value: {value}\n\t\t  Cartesian Coordinates: {coords}\n\t\t  Fractional Coordinates: {fractional_coords[i-1]}\n"
-            
+
             return maxima_info
 
         else:
@@ -1715,7 +1801,7 @@ class GuestSites:
         Load the cube data for the site.
         """
         dir = self.gala.directory
-        guests = self.parent_molecule.composition.reduced_formula
+        guests = self.parent_molecule
         sites = self.label
         sites_element = self.element
         fold = self.gala.gcmc_grid_factor
@@ -1723,7 +1809,10 @@ class GuestSites:
         probability_file = f'{dir}/Prob_Guest_{guests}_Site_{sites}_folded.cube'
         probability_file_unfolded = f'{dir}/Prob_Guest_{guests}_Site_{sites}.cube'
 
+        print('Looking for probability plot for guest: ', guests, 'at site: ', sites)
+
         if os.path.exists(probability_file):
+            print('Attempting to read probability plot:', probability_file.split('/')[-1])
             try:
                 self.cube = VolumetricData.from_cube(probability_file)
                 localdata = self.cube.data['total']
@@ -1733,37 +1822,70 @@ class GuestSites:
                 self._datapoints = localdata
             except Exception as e:
                 raise Exception(f'Error loading cube file: {probability_file}')
-            
+
         elif not os.path.exists(probability_file) and os.path.exists(probability_file_unfolded):
+            print('Attempting to read probability plot:', probability_file_unfolded.split('/')[-1])
             try:
                 self.cube = VolumetricData.from_cube(probability_file_unfolded)
-                # TODO Write Check to see if division is ok (must dim must be divisible by fold)
+                self.check_cube_divisibility(self.cube.dim, np.array(fold))
+
                 folded_dim = self.cube.dim // np.array(fold)
                 unit_cell = self.get_unit_cell_structure(fold)
                 localdata = self.folding_cube_file(fold, folded_dim)
                 localdata = localdata / np.sum(localdata)
+
+                # Tanimoto gives nan values
+                # if fold != (1,1,1):
+                #     avg_tanimoto, std_tanimoto = self.compute_tanimoto(localdata)
+                #     print(avg_tanimoto, std_tanimoto)
+                #     print("Average tanimoto score: {} +/- {}".format(avg_tanimoto, std_tanimoto))
+                
                 self.cube = VolumetricData(unit_cell, {'total': localdata})
                 if self.gala.gcmc_write_folded:
                     self.save_folded_cube(dir, guests, sites)
                 self._datapoints = localdata
-                
+
             except Exception as e:
                 raise Exception(
                     f'Error loading cube file: {probability_file_unfolded}')
-        
+
         elif not os.path.exists(probability_file) and sites_element == 'D':
-            self._maxima_coordinates = ['N/A']; self._maxima_values = ['N/A']
+            self._maxima_coordinates = ['N/A']
+            self._maxima_values = ['N/A']
 
         else:
             raise FileNotFoundError('''Error Code: UNAVAILABLE_CUBE_FILE
 Error Description: Unavailable Probability File
 Error Message: We apologize, but we couldn't locate any available unfolded or folded probability file required for this operation.\n''')
 
+    def check_cube_divisibility(self, cube_dims, fold_factors):
+        is_divisible = cube_dims % fold_factors
+        if np.any(is_divisible != 0):  # If any element is not divisible
+            error_messages = []
+            axes = ['x', 'y', 'z']  # Axes labels for readability
+            for i, (dim, fold_factor) in enumerate(zip(cube_dims, fold_factors)):
+                if dim % fold_factor != 0:
+                    error_messages.append(f'Grid points in {axes[i]}, {dim}, not divisible by fold factor, {fold_factor}')
+            if error_messages:
+                raise ValueError('\n'.join(error_messages))
+
+    def compute_tanimoto(self, data):
+        tanimoto = []
+        for combo in combinations(data, 2):
+            tanimoto.append((combo[0] * combo[1]).sum() /
+                            ((combo[0] * combo[0]).sum() +
+                            (combo[1] * combo[1]).sum() -
+                            (combo[0] * combo[1]).sum()))
+            
+        tanimoto = [x for x in tanimoto if str(x) != 'nan'] # Remove nan, temp
+
+        return (np.mean(tanimoto), np.std(tanimoto))
+
     def get_unit_cell_structure(self, fold):
         """
         Computes the unit cell structure by considering a subset of the structure 
         within the fractional coordinate bounds, determined by the given fold.
-        
+
         Parameters:
         - fold (tuple): A tuple of integers representing the fold in each 
           x, y, z dimension respectively.
@@ -1778,16 +1900,18 @@ Error Message: We apologize, but we couldn't locate any available unfolded or fo
           in each dimension to compute the unit cell structure.
         """
         bounds = (1 / fold[0], 1 / fold[1], 1 / fold[2])
-        unit_cell_sites = [site for site in self.cube.structure if all(0 <= c < bounds[i] for i, c in enumerate(site.frac_coords))]
-        unit_cell_sites_frac_coords = [site.frac_coords * fold for site in unit_cell_sites]
+        unit_cell_sites = [site for site in self.cube.structure if all(
+            0 <= c < bounds[i] for i, c in enumerate(site.frac_coords))]
+        unit_cell_sites_frac_coords = [
+            site.frac_coords * fold for site in unit_cell_sites]
 
-        constraint_lattice = self.cube.structure.lattice.matrix / np.array(fold)[:, None]
+        constraint_lattice = self.cube.structure.lattice.matrix / \
+            np.array(fold)[:, None]
         unit_cell = Structure(constraint_lattice,
-                            [site.species_string for site in unit_cell_sites],
-                            unit_cell_sites_frac_coords,
-                            coords_are_cartesian=False)
+                              [site.species_string for site in unit_cell_sites],
+                              unit_cell_sites_frac_coords,
+                              coords_are_cartesian=False)
         return unit_cell
-
 
     def folding_cube_file(self, fold, folded_dim):
         """
@@ -1808,20 +1932,20 @@ Error Message: We apologize, but we couldn't locate any available unfolded or fo
         - If the fold is (2,2,2), the original data will be divided into 8 blocks, 
           and the values within each block are averaged to obtain the folded data.
         """
-        localdata = np.zeros((fold[0] * fold[1] * fold[2], folded_dim[0], folded_dim[1], folded_dim[2]))
+        localdata = np.zeros(
+            (fold[0] * fold[1] * fold[2], folded_dim[0], folded_dim[1], folded_dim[2]))
         for xidx in range(fold[0]):
             for yidx in range(fold[1]):
                 for zidx in range(fold[2]):
                     grid_idx = zidx + yidx * fold[2] + xidx * fold[2] * fold[1]
                     localdata[grid_idx] = self.cube.data['total'][
-                                        (xidx * self.cube.dim[0]) // fold[0]:((xidx + 1) * self.cube.dim[0]) // fold[0],
-                                        (yidx * self.cube.dim[1]) // fold[1]:((yidx + 1) * self.cube.dim[1]) // fold[1],
-                                        (zidx * self.cube.dim[2]) // fold[2]:((zidx + 1) * self.cube.dim[2]) // fold[2]]
+                        (xidx * self.cube.dim[0]) // fold[0]:((xidx + 1) * self.cube.dim[0]) // fold[0],
+                        (yidx * self.cube.dim[1]) // fold[1]:((yidx + 1) * self.cube.dim[1]) // fold[1],
+                        (zidx * self.cube.dim[2]) // fold[2]:((zidx + 1) * self.cube.dim[2]) // fold[2]]
 
         avg_data = np.mean(localdata, axis=0)
         normalized_data = avg_data / np.sum(avg_data)
         return normalized_data
-
 
     def save_folded_cube(self, dir, guests, sites):
         """
@@ -1845,9 +1969,10 @@ Error Message: We apologize, but we couldn't locate any available unfolded or fo
         - 'Prob_Guest_<guests>_Site_<sites>_folded.cube', where <guests> and <sites> 
           will be replaced by the actual values passed to the function.
         """
-        file_path = os.path.join(dir, f'Prob_Guest_{guests}_Site_{sites}_folded.cube')
+        file_path = os.path.join(
+            dir, f'Prob_Guest_{guests}_Site_{sites}_folded.cube')
         self.cube.to_cube(file_path)
-    
+
     def calculate_maxima(self):
         """
         Calculate the maxima for the site.
@@ -1860,7 +1985,7 @@ Error Message: We apologize, but we couldn't locate any available unfolded or fo
                     "Invalid directory value: " + self.gala.method)
 
         original_data = self._datapoints
-        temp_data = original_data
+        temp_data = self._datapoints
         normalising_sum = sum(temp_data)
         dimension = (np.array(self.cube.dim)).reshape(-1, 1)
         cell = self.cube.structure.lattice.matrix
@@ -1870,12 +1995,16 @@ Error Message: We apologize, but we couldn't locate any available unfolded or fo
         sigma = (self.gala.gcmc_sigma / spacing) ** 0.5
         temp_data = gaussian_filter(temp_data, sigma, mode="wrap")
 
+        np.seterr(divide='ignore', invalid='ignore')
         temp_data *= normalising_sum / sum(temp_data)
 
         if self.gala.gcmc_write_smoothed:
-            guests = self.parent_molecule.composition.reduced_formula
+            guests = self.parent_molecule
             sites = self.label
-            VolumetricData(self.cube.structure, {'total': temp_data}).to_cube(os.path.join(self.gala.directory, f'Prob_Guest_{guests}_Site_{sites}_smoothed.cube'))
+            self._datapoints = temp_data
+            VolumetricData(self.cube.structure, {'total': temp_data}).to_cube(os.path.join(
+                self.gala.directory, f'Prob_Guest_{guests}_Site_{sites}_smoothed.cube'))
+            self._datapoints = original_data
 
         neighborhood = generate_binary_structure(np.ndim(temp_data), 2)
 
@@ -1896,7 +2025,7 @@ Error Message: We apologize, but we couldn't locate any available unfolded or fo
             if np.all(temp_data[point] > 0.0):
                 cartesian_peaks.append(
                     (np.dot(point, cell_total).tolist(), temp_data[point]))
-                
+
         pruned_peaks = []
         maximum_value = max([peak[1] for peak in cartesian_peaks])
         for point in sorted(cartesian_peaks, key=lambda k: -k[1], reverse=True):
@@ -1904,7 +2033,7 @@ Error Message: We apologize, but we couldn't locate any available unfolded or fo
                 pruned_peaks.append(point)
 
         self._maxima_coordinates = [point[0] for point in pruned_peaks]
-        self._maxima_values = [point[1] for point in pruned_peaks]  
+        self._maxima_values = [point[1] for point in pruned_peaks]
 
 
 def post_gala_cleaning(dir):
@@ -1926,21 +2055,23 @@ if __name__ == "__main__":
         shutil.rmtree(os.path.join(gala_input.directory, 'DL_poly_BS'))
     else:
         pass
-    
-    
 
     structure = GuestStructure(gala_input)
+
     for i in range(len(structure.guest_molecules)):
-        composition_formula = structure.guest_molecules[i].composition.reduced_formula
+        composition_formula = structure.guest_molecules[i].formula_property
         filename_cif = f"{composition_formula}_binding_sites.cif"
         filename_xyz = f"{composition_formula}_binding_sites_fractional.xyz"
+        filename_txt = f"{composition_formula}_guest_information.xyz"
         structure.guest_molecules[i].write_binding_sites(filename=filename_cif)
-        structure.guest_molecules[i].write_binding_sites_fractional(filename=filename_xyz)
+        structure.guest_molecules[i].write_binding_sites_fractional(
+            filename=filename_xyz)
+        structure.guest_molecules[i].write_guest_info(filename=filename_txt)
         directories = structure.guest_molecules[i].Make_Files()
 
         structure.guest_molecules[i].Submit_DL_Poly(
-            False, 
-            directories, 
+            False,
+            directories,
             gala_input.directory,
             gala_input.md_exe,
             ['REVIVE']
@@ -1955,5 +2086,5 @@ if __name__ == "__main__":
     # --- --- ---
     end_time = time.time()
     elapsed_time = end_time - start_time
-    print(f"Time before completion: {elapsed_time:.2f} seconds")
+    print(f"Runtime completion: {elapsed_time:.2f} seconds")
     # --- --- ---
