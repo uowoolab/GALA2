@@ -21,52 +21,68 @@
         \::/____/                \::/    /                \::/    /        \::/    /        
                                   \/____/                  \/____/          \/____/      
 ==========================================================================================
-Authors ...
+Authors and Contributions:
+- Olivier Marchand, Masters Student, University of Ottawa
+- Jake Burner, PhD Student, University of Ottawa
+
+Original Creation Acknowledgment:
+- The original Legacy GALA (vectorial) algorithm was created by Tom Burns, PhD
 ------------------------------------------------------------------------------------------
                                     General Input
->> FASTMC or RASPA? <<
+Software Choice: [FASTMC, RASPA] (default: FASTMC):
 FASTMC
->> Absolute path to directory with input files (FIELD + Probability plots)<<
+Input Files Path:
 
->> Maximum Number of Binding sites (Optional, integer) <<
+Max Binding Sites (integer, optional): 
 
->> Maximum Binding sites Energies (Optional, integer) (default == -100 kJ/mol)
+Max Binding Sites Energy (integer, optional, default: -100 kJ/mol):
+
+------------------------------------------------------------------------------------------
+                                    Binding Site Algorithm
+Algorithm Selection: [0: Legacy GALA (vectorial), 1: RMDS] (default: 1):
+1
+If RMDS selected, additional options:
+Overlap Tolerance (default: 0.3):
+
+RMSD Cutoff (default: 0.1):
 
 ------------------------------------------------------------------------------------------
                                 MD Parameters
->> MD Program Executable <<
+MD Program Executable: <Enter executable name, e.g., DLPOLY.X>:
 DLPOLY.X
->> Cutoff (Angstrom) <<
-12.500000
->> Dedicated CPU for Paralization of MD Jobs (default == 1) <<
+Optimize Binding Sites [T/F] (default: F):
+
+Optimization Step (Required if "Optimize Binding Sites" is T) (default: 1000):
+
+Timestep (ps) (default: 0.01):
+
+Cutoff (Angstrom) (default: 12.5):
+
+Dedicated CPUs for MD simulation(default: 1):
 
 ------------------------------------------------------------------------------------------
                             GCMC Analysis Parameters
->> Sigma <<
-2
->> Radius <<
-0.45
->> Cutoff <<
-0.1
->> Write folded (T or F) <<
-F
->> Grid Factors (Required if "Write folded" is True, or if unfolded plots are provided) <<
+Sigma (default: 2):
 
->> Write Smoothed (T or F) <<
-T
+Radius (default: 0.45): 
+
+Cutoff (default: 0.1): 
+
+Write Folded [T/F] (default: F):
+
+Grid Factors (Required if "Write folded" is T or unfolded plots are provided): <e.g., 4 3 3>
+
+Write Smoothed [T/F] (default: F):
+
 ------------------------------------------------------------------------------------------
                                 Probability Plot Selection
->> The naming scheme for the output file is as followed:
-    > Prob_Guest_X_Site_Y_folded.cube
-        where X represent the Guest Molecular Formula ex. CO2, N2, CO
-            and Y represent the specified sites 
-            (found in Field file and in pseudo_potential.def file) ex. Cx, Ox, Nx <<
->> Provide Guest Molecule Formula delimited by a space ex. CO2 N2 << 
+Naming Scheme for Probability Plots from GCMC Simulation > Prob_Guest_X_Site_Y_folded.cube
+Provide Guest (X) Molecule Formula (space-separated, e.g., CO2 N2):
 
->> Provide Sites delimited by a space and grouped by molecule ex. Cx,Ox Nx <<
+Provide Sites (Y) (space-separated, grouped by molecule, e.g., Cx,Ox Nx):
 
 ------------------------------------------------------------------------------------------
                                 Post Process Cleaning
->> Remove DL_POLY_BS directory contaning DL poly individual jobs (T or F) <<
-F
+Remove DL_POLY_BS directory [T/F] (default: F):
+
 ------------------------------------------------------------------------------------------

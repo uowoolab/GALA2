@@ -2,9 +2,8 @@
 
 import os
 import numpy as np
-from pymatgen.core import Element, Molecule, Structure
+from pymatgen.core import Element, Molecule, Structure, Lattice
 from pymatgen.io.common import VolumetricData
-from pymatgen.util.coord import all_distances
 from scipy.ndimage import gaussian_filter, maximum_filter
 from scipy.ndimage import generate_binary_structure, binary_erosion, iterate_structure
 from pymatgen.analysis.structure_matcher import StructureMatcher
@@ -18,9 +17,9 @@ import multiprocessing
 import time
 import warnings
 import sys
+import logging
 
 warnings.filterwarnings('ignore', message='No Pauling electronegativity for ')
-
 
 class GalaInput:
     def __init__(self, dir):
@@ -30,35 +29,62 @@ class GalaInput:
         Args:
             dir (str): Directory path containing GALA input files.
         """
+
         with open(f'{dir}/GALA.inp', 'r') as f:
             lines = f.readlines()
+
+        self.temp_logs = []
 
         self.directory = dir
 
         # General Input
-        self.method = self._get_method(lines[27])
-        self.directory = self._get_directory(lines[29])
-        self.max_number_bs = self._get_max_number_bs(lines[31])
-        self.max_bs_energy = self._get_max_bs_energy(lines[33])
+        self.method = self._get_method(lines[32])
+        self.directory = self._get_directory(lines[34])
+        self.max_number_bs = self._get_max_number_bs(lines[36])
+        self.max_bs_energy = self._get_max_bs_energy(lines[38])
         self.output_directory = self._get_output_directory()
 
+        # Binding Site
+        self.bs_algorithm = self._get_bs_algorithm(lines[42])
+        self.overlap_tol = self._get_ov_tol(lines[45])
+        self.rmsd_cutoff = self._get_rmsd_cutoff(lines[47])
+
         # MD Parameters
-        self.md_exe = lines[37].strip('\n')
-        self.md_cutoff = float(lines[39].strip('\n'))
-        self.md_cpu = self._get_md_cpu(lines[41])
+        self.md_exe = lines[51].strip('\n')
+        self.opt_binding_sites = lines[53].strip('\n').upper() == "T"
+        self.opt_steps = self._get_opt_steps(lines[55])
+        self.timestep = self._get_timestep(lines[57])
+        self.md_cutoff = self._get_md_cutoff(lines[59])
+        self.md_cpu = self._get_md_cpu(lines[61])
 
         # GCMC Analysis Parameters
-        self._set_gcmc_parameters(lines)
+        self.gcmc_sigma = self._get_sigma(lines[65])
+        self.gcmc_radius = self._get_radius(lines[67])
+        self.gcmc_cutoff = self._get_cutoff(lines[69]) # nice
+        self.gcmc_write_folded = lines[71].strip('\n').upper() == "T"
+        self.gcmc_grid_factor = self._get_gcmc_grid_factor(lines[73])
+        self.gcmc_write_smoothed = lines[75].strip('\n').upper() == "T"
 
         # Probability Plot Guest and Site Selection
-        self.selected_guest = self._get_selected_guest(lines[64])
-        self.selected_site = self._get_selected_site(lines[66])
+        self.selected_guest = self._get_selected_guest(lines[80])
+        self.selected_site = self._get_selected_site(lines[82])
 
         # Post Process Cleaning Section
-        self.cleaning = lines[70].strip('\n').upper() == "T"
+        self.cleaning = lines[86].strip('\n').upper() == "T"
+
+    def _log_temp(self, level, message):
+        """Stores a log message with level in the temporary list."""
+        self.temp_logs.append((level, message))
 
     def _get_method(self, line):
-        return line.upper().strip('\n')
+        try:
+            method = line.upper().strip('\n')
+            if method == 'RASPA' or method == 'FASTMC':
+                return method
+            raise ValueError
+        except ValueError:
+            self._log_temp('ERROR', 'Invalid input, Unknown method')
+            sys.exit(0)
 
     def _get_directory(self, line):
         directory = line.strip('\n')
@@ -71,7 +97,7 @@ class GalaInput:
                 return max_number_bs
             raise ValueError
         except ValueError:
-            print('Warning: Invalid input. All binding sites will be printed.')
+            self._log_temp('WARNING', 'Invalid input. All binding sites will be printed.')
             return float('inf')
 
     def _get_max_bs_energy(self, line):
@@ -81,14 +107,77 @@ class GalaInput:
                 return max_bs_energy
             raise ValueError
         except ValueError:
-            print('Warning: Invalid input. Default binding energy is used.')
+            self._log_temp('WARNING', 'Invalid input. Default binding energy is used.')
             return float(-100.0)
+        
+    def _get_bs_algorithm(self, line):
+        try:
+            algorithm = int(line.strip('\n'))
+            if algorithm == 0 or algorithm == 1:
+                return algorithm
+            raise ValueError
+        except ValueError:
+            self._log_temp('WARNING', 'Invalid input. Default RMSD algorithm will be used.')
+            return int(1)
+
+    def _get_ov_tol(self, line):
+        try:
+            ov_tol = float(line.strip('\n'))
+            if ov_tol > 0:
+                return ov_tol
+            raise ValueError
+        except ValueError:
+            self._log_temp('WARNING', 'Invalid input. Default overlap tolerance is used. (0.3)')
+            return float(0.3)
+        
+    def _get_rmsd_cutoff(self, line):
+        try:
+            rmsd_cutoff = float(line.strip('\n'))
+            if rmsd_cutoff > 0:
+                return rmsd_cutoff
+            raise ValueError
+        except ValueError:
+            self._log_temp('WARNING', 'Invalid input. Default RMDS cutoff is used. (0.1)')
+            return float(0.1)
 
     def _get_output_directory(self):
         output_directory = os.path.join(self.directory, 'GALA_Output')
         if not os.path.exists(output_directory):
             os.mkdir(output_directory)
         return output_directory
+
+    def _get_opt_steps(self, line):
+        try:
+            steps = int(line.strip('\n'))
+            if steps >= 1 and steps <= 10000:
+                return steps
+            elif steps >= 10000:
+                steps = 10000
+                self._log_temp('INFO', 'Too many steps, default-ing to 10k steps')
+            raise ValueError
+        except ValueError:
+            self._log_temp('INFO', 'Using default number of steps allocation for DL Poly calculations (Step = 1)')
+            return 1000
+        
+    def _get_timestep(self, line):
+        try:
+            timestep = float(line.strip('\n'))
+            if timestep > 0:
+                return timestep
+            raise ValueError
+        except ValueError:
+            self._log_temp('INFO', 'Using default 0.01 ps timestep')
+            return float(0.01)
+
+    def _get_md_cutoff(self, line):
+        try:
+            gcmc_cutoff = float(line.strip('\n'))
+            if gcmc_cutoff > 0:
+                return gcmc_cutoff
+            raise ValueError
+        except ValueError:
+            self._log_temp('WARNING', 'Invalid input. Default gcmc cutoff is used. (12.500000)')
+            return float(12.5)
 
     def _get_md_cpu(self, line):
         try:
@@ -97,16 +186,38 @@ class GalaInput:
                 return md_cpu
             raise ValueError
         except ValueError:
-            print('Using default CPU allocation for DL Poly calculations (CPU = 1)')
-            return 1
+            self._log_temp('INFO', 'Using default CPU allocation for DL Poly calculations (CPU = 1)')
+            return int(1)
+    
+    def _get_sigma(self, line):
+        try:
+            sigma = float(line.strip('\n'))
+            if sigma > 0:
+                return sigma
+            raise ValueError
+        except ValueError:
+            self._log_temp('WARNING', 'Using default sigma of 2')
+            return int(2)
 
-    def _set_gcmc_parameters(self, lines):
-        self.gcmc_sigma = float(lines[45].strip('\n'))
-        self.gcmc_radius = float(lines[47].strip('\n'))
-        self.gcmc_cutoff = float(lines[49].strip('\n'))
-        self.gcmc_write_folded = lines[51].strip('\n').upper() == "T"
-        self.gcmc_grid_factor = self._get_gcmc_grid_factor(lines[53])
-        self.gcmc_write_smoothed = lines[55].strip('\n').upper() == "T"
+    def _get_cutoff(self, line):
+        try:
+            cutoff = float(line.strip('\n'))
+            if cutoff > 0:
+                return cutoff
+            raise ValueError
+        except ValueError:
+            self._log_temp('WARNING', 'Using default cutoff of 0.1')
+            return float(0.1)
+
+    def _get_radius(self, line):
+        try:
+            radius = float(line.strip('\n'))
+            if radius > 0:
+                return radius
+            raise ValueError
+        except ValueError:
+            self._log_temp('WARNING', 'Using default radius of 0.45')
+            return float(0.45)
 
     def _get_gcmc_grid_factor(self, line):
         try:
@@ -115,24 +226,23 @@ class GalaInput:
                 return grid_factor
             raise ValueError
         except ValueError:
-            print('Using default grid factor (1,1,1)')
+            self._log_temp('INFO', 'Using default grid factor (1,1,1)')
             return 1, 1, 1
 
     def _get_selected_guest(self, line):
         selected_guest = tuple(line.split())
         if not selected_guest:
-            print("No guest selected, using all guests.")
-            selected_guest = "ALL"  # You can replace "ALL" with a method to get all guests if needed
+            self._log_temp('INFO', "No guest selected, using all guests.")
+            selected_guest = "ALL"
         return selected_guest
 
     def _get_selected_site(self, line):
         selected_site = tuple([group.split(',') if ',' in group else [
                               group] for group in line.split()])
         if not any(selected_site):
-            print("No site selected, using all sites.")
-            selected_site = "ALL"  # You can replace "ALL" with a method to get all sites if needed
+            self._log_temp('INFO', "No site selected, using all sites.")
+            selected_site = "ALL"
         return selected_site
-
 
 class GuestStructure:
     def __init__(self, gala):
@@ -142,6 +252,9 @@ class GuestStructure:
         Args:
             gala (GalaInput): Instance of the GalaInput class.
         """
+
+        logger = logging.getLogger(__name__)
+
         self.gala = gala
         self.method = self.gala.method
         self.directory = self.gala.directory
@@ -158,7 +271,7 @@ class GuestStructure:
                 self.guest_molecules.append(guest_molecule)
 
         else:
-            raise ValueError(f"Unknown method: {self.method}")
+            logger.error(f"Unknown method: {self.method}")
 
     def __str__(self):
         """
@@ -179,14 +292,14 @@ class GuestStructure:
         """
 
         if len(self.gala.selected_guest) != len(self.gala.selected_site):
-            raise ValueError(
+            logger.error(
                 "Error Code: GUEST_SITE_MISMATCH\nError Description: The selected guest and site information is inconsistent.")
 
         try:
             with open(os.path.join(self.gala.directory, "FIELD"), "r") as f:
                 field_lines = f.readlines()
         except FileNotFoundError:
-            raise FileNotFoundError(
+            logger.error(
                 "Cannot find FIELD file in directory:", self.gala.directory)
 
         self._structure_name = field_lines[0].replace('\n', '')
@@ -416,6 +529,9 @@ class GuestMolecule(Molecule):
         """
         super().__init__(species, coords)
 
+        logger = logging.getLogger(__name__)
+        logger.info('Calculating Binding Sites')
+
         self.guest_molecule_data = Molecule(
             species=[i[1] for i in sites_data_unfilted],
             coords=[i[2] for i in sites_data_unfilted],
@@ -429,9 +545,11 @@ class GuestMolecule(Molecule):
         self.gala = gala_instance
         self.guest_sites = None
         self.sites_labels_save = sites_labels_save
+        
         if sites_data is not None:
             self.guest_sites = [GuestSites(*site_data, parent_molecule=self.formula_property, gala_instance=gala_instance)
                                 for site_data in sites_data]
+            
         self._binding_sites = None
         self._binding_sites_cart = None
         self._binding_site_maxima = None
@@ -455,7 +573,7 @@ class GuestMolecule(Molecule):
     def binding_sites(self):
         """
         Property method to access the calculated binding sites. If the binding sites have not been calculated yet, it calls
-        the calculate_binding_sites() method to calculate them first. It returns the coordinates of the binding sites.
+        the s() method to calculate them first. It returns the coordinates of the binding sites.
 
         Returns:
             list: A list of binding site coordinates.
@@ -475,7 +593,7 @@ class GuestMolecule(Molecule):
             Structure: The structure object.
         """
         if not self.guest_sites:
-            raise Exception("No guest sites found")
+            logger.error("No guest sites found")
 
         if self._structure_match is None:
             self.check_structure_match()
@@ -496,11 +614,23 @@ class GuestMolecule(Molecule):
         for site in self.guest_sites[1:]:
             if not matcher.fit(first_structure, site.structure):
                 self._structure_match = False
-                raise Exception("Structures in the cube files do not match!")
+                logger.warning("Structures in the cube files do not match!")
 
         self._structure_match = True
 
     def calculate_binding_sites(self):
+
+        if self.gala.bs_algorithm == 0:
+            logger.info('Processing binding sites using legacy algorithm')
+            self.calculate_binding_sites_legacy()
+        elif self.gala.bs_algorithm == 1:
+            logger.info('Processing bidning sites using RMSD algorithm')
+            self.calculate_binding_sites_rmsd()
+        else:
+            logger.error('Unknown input')
+            sys.exit(0)
+
+    def calculate_binding_sites_legacy(self):
         """
         Calculate the binding sites for the guest molecules around the central molecule in the structure. It first calculates
         the distance of each atom from the center of mass. Then, it sorts the atoms based on their distances from shortest to
@@ -527,10 +657,6 @@ class GuestMolecule(Molecule):
         # Sort the atoms based on the distance from shortest to longest
         guest_atom_distances.sort()
 
-        # Replace old index with new one based on sorted order
-        guest_atom_distances = [(dist, idx_new, atom) for idx_new,
-                                (dist, idx_old, atom) in enumerate(guest_atom_distances)]
-
         # Calculate distance between each pair of atoms
         distances = {}
         for (dist1, idx1, atom1), (dist2, idx2, atom2) in combinations(guest_atom_distances, 2):
@@ -540,6 +666,7 @@ class GuestMolecule(Molecule):
 
         overlap_tol = 0.3
         binding_sites = []
+
         occupancies = []
         cleaned_binding_site = []
 
@@ -548,7 +675,6 @@ class GuestMolecule(Molecule):
 
         # Working with a dict of {label: site}
         sites = {x.label: x for x in self.guest_sites}
-
         for central_max, central_max_value in zip(sites[origin_key].maxima_cartesian_coordinates,
                                                   sites[origin_key]._maxima_values):
 
@@ -576,7 +702,7 @@ class GuestMolecule(Molecule):
                                                   get_struct.lattice.get_fractional_coords(
                                                       central_max),
                                                   get_struct.lattice.get_fractional_coords(align_atom_max))[0][0]
-
+                
                 separation_0_1 = np.linalg.norm(vector_0_1)
 
                 # How much overlap is there between the sites according to plot vs expected
@@ -631,6 +757,7 @@ class GuestMolecule(Molecule):
                         # If we find two aligning sites within tolerance (multiple of 2 since we are fitting two sites)
                         if overlap_0_2 < overlap_tol and overlap_1_2 < 2 * overlap_tol:
                             found_site = True
+
                             # Add all three sites
                             binding_sites.append([
                                 (guest_atom_distances[0][1],
@@ -640,12 +767,12 @@ class GuestMolecule(Molecule):
                                 (guest_atom_distances[1][1], vector_0_2)])
 
                     if not found_site:
+                        
                         binding_sites.append([
                             (guest_atom_distances[0][1],
                                 central_max,
                                 central_max_value),
-                            (guest_atom_distances[1][1], vector_0_1),
-                            (guest_atom_distances[1][1], vector_0_2)])
+                            (guest_atom_distances[1][1], vector_0_1)])
 
             else:
                 if '0_2' not in distances and align_closest[0] > distances['0_1']:
@@ -657,12 +784,12 @@ class GuestMolecule(Molecule):
         binding_sites = self.remove_duplicates_and_inverses(binding_sites)
         binding_sites = sorted(
             binding_sites, key=lambda x: x[0][2], reverse=True)
-
+        
         if self.gala.max_number_bs != float('inf'):
             if len(binding_sites) > self.gala.max_number_bs:
                 binding_sites = binding_sites[:self.gala.max_number_bs]
             elif len(binding_sites) < self.gala.max_number_bs:
-                print(
+                logger.info(
                     "Less binding sites found than requested, proceeding with all binding sites")
 
         for site in binding_sites:
@@ -680,6 +807,213 @@ class GuestMolecule(Molecule):
         self._binding_sites = self.remove_duplicates(cleaned_binding_site)
         self._binding_sites_cart = self.convert_to_cartesian(
             cleaned_binding_site)
+        
+    def calculate_binding_sites_rmsd(self):
+        
+        try:
+            import rmsd
+        except ValueError:
+            logger.error('rmsd python library is required for RMSD algorithm')
+            sys.exit(0)
+
+        get_struct = self.get_cube_structure
+        lattice = Lattice(get_struct.lattice.matrix)
+
+        overlap_tolerance = self.gala.overlap_tol
+        rmsd_cutoff = self.gala.rmsd_cutoff
+
+        # All all information needed to run RMDS algorithm
+        sites_elements = []
+        sites_labels = []
+        guest_atoms = []
+        field_coordinate = self.cart_coords
+
+        # Save only the information for the non dummy sites
+        for idx, atom in enumerate(self.guest_molecule_data.site_properties['elements']):
+            for site in self.guest_sites:
+                if atom != 'D':
+                    if str(atom) == str(site.element):
+                        sites_elements.append(site.element)
+                        guest_atoms.append((idx, site.label))
+                        sites_labels.append(site.label)
+                else:
+                    pass
+
+        field_molecule = Molecule(species=sites_elements, labels=sites_labels, coords=field_coordinate)
+
+        field_wt_dummy = self.guest_molecule_data.cart_coords.copy()
+
+        sites = {x.label: (x.maxima_cartesian_coordinates, x._maxima_values) 
+            for x in self.guest_sites if x.element != 'D'}
+
+        # Function to calculate distances bettween all possible atom combinations of the FIELD file guest
+        def calculate_distances(molecule):
+            distances = {}
+            for i in range(len(molecule)):
+                for j in range(i + 1, len(molecule)):
+                    dist = molecule.get_distance(i, j)
+                    distances[f"{i}_{j}"] = dist
+            return distances
+
+        distances = calculate_distances(field_molecule)
+
+        def pbc_distance(coord1, coord2, lattice):
+            frac_coord1 = lattice.get_fractional_coords(coord1)
+            frac_coord2 = lattice.get_fractional_coords(coord2)
+            vector = pbc_shortest_vectors(lattice, frac_coord1, frac_coord2)
+            
+            return np.linalg.norm(vector)
+
+        def is_within_tolerance_pbc(coord1, coord2, expected_distance, lattice, tolerance):
+            actual_distance = pbc_distance(coord1, coord2, lattice)
+
+            return abs(actual_distance - expected_distance) <= tolerance
+
+        def build_molecule(current_molecule, remaining_atoms, sites, all_molecules, distances, lattice, rmsd_tol):
+
+            if not remaining_atoms:
+                all_molecules.append([(label, frac_coord, maxima) for (label, frac_coord, maxima) in current_molecule])
+                return
+
+            next_atom_index, next_atom_label = remaining_atoms[0]
+
+            for coord, maxima in zip(sites[next_atom_label][0], sites[next_atom_label][1]):
+                valid = True
+
+                for i, (prev_label, prev_frac_coord, _) in enumerate(current_molecule):
+                    distance_key = f"{min(i, next_atom_index)}_{max(i, next_atom_index)}"
+                    if distance_key in distances:
+                        pbc_distance_check = is_within_tolerance_pbc(coord, prev_frac_coord, distances[distance_key], lattice, tolerance=rmsd_tol)
+
+                        if not pbc_distance_check:
+                            valid = False
+                            break
+
+                if valid:
+                    current_molecule.append((next_atom_label, coord, maxima))
+                    build_molecule(current_molecule, remaining_atoms[1:], sites, all_molecules, distances, lattice, rmsd_tol=rmsd_tol)
+                    current_molecule.pop()
+
+        # Get all of the possible combinations of molecule where the difference between the atoms are within 0.3
+        all_combinations = []
+        build_molecule([], guest_atoms, sites, all_combinations, distances, lattice, rmsd_tol=overlap_tolerance)
+        
+        # Filter dulplicate and reversable molecules (checks if the same combination of coordiantes are used more than ones)
+        binding_sites = self.filter_duplicates_and_inverses(all_combinations)
+
+        binding_sites = sorted(
+                binding_sites, key=lambda x: x[0][2], reverse=True)
+        
+
+        # Function to restructure the molecule data so it matches original gala's inputs
+        def restructure_molecule_data(molecules):
+            restructured_data = []
+            for molecule in molecules:
+                elements = [element for element, _, _ in molecule]
+                coords = [coords for _, coords, _ in molecule]
+                occupancies = [occ for _, _, occ in molecule]
+                restructured_data.append([elements, coords, occupancies, []])
+            return restructured_data
+
+        restructured_molecules = restructure_molecule_data(binding_sites)
+        
+        def modify_coordinates(coords, lattice):
+            """ Save the cartesian coordinates of edge molecules using the image and translating the site to the 
+            corresponding position, required for fitting accuratly the maximas to the field molecule"""
+            # Convert each atom's Cartesian coordinates to fractional
+            frac_coords = lattice.get_fractional_coords(coords)
+
+            # Create a new array for modified fractional coordinates
+            modified_frac_coords = np.zeros_like(frac_coords)
+
+            # Reference point
+            ref_point = frac_coords[0]
+
+            for i in range(len(frac_coords)):
+                _, jimage = Lattice.get_distance_and_image(lattice, ref_point, frac_coords[i])
+                modified_frac_coords[i] = frac_coords[i] + np.array(jimage)
+
+            # Convert modified fractional coordinates back to Cartesian
+            modified_cart_coords = lattice.get_cartesian_coords(modified_frac_coords)
+
+            # Return the modified coordinates as a list
+            return modified_cart_coords.tolist()
+
+        for molecule in restructured_molecules:
+            _, coords, _, _ = molecule
+            modified_coords = modify_coordinates(coords, lattice)
+            molecule[2] = modified_coords
+
+
+        def align_molecule_to_field(generated_molecule, field_molecule, dummy_mol, lattice, threshold):
+            """ Fit the field molecule on the maxima coordiante molecule generated earlier. CUrrently using 0.1 (#TODO Add option to input to modify this)"""
+            
+            # Caluclate common point between the 2 molecules (Centroid)
+            centroid_gen = rmsd.centroid(np.array(generated_molecule[2]))
+            centroid_field = rmsd.centroid(field_molecule)
+            centroid_dummy = rmsd.centroid(dummy_mol)
+
+            # Translate the FIELD molecule to the centroid of the generated molecule
+            field_translated = field_molecule - centroid_field
+            dummy_translated = dummy_mol - centroid_dummy
+
+            # Rotate FIELD molecule to best fit the generated molecule using Kabsch algorithm
+            U = rmsd.kabsch(field_translated, np.array(generated_molecule[2]))
+            field_rotated = np.dot(field_translated, U)
+            dummy_rotated = np.dot(dummy_translated, U)
+
+            # Calculate RMSD
+            rmsd_value = rmsd.rmsd(field_rotated, np.array(generated_molecule[2]) - centroid_gen)
+            rmsd_per_atom = rmsd_value / len(field_molecule)
+
+            if rmsd_per_atom <= threshold:
+                # Apply the translation to each atom in the field molecule
+                field_aligned = field_rotated + centroid_gen
+                dummy_aligned = dummy_rotated + centroid_gen
+
+                # Convert the aligned field molecule to fractional coordinates considering periodic boundaries
+                field_aligned_frac = lattice.get_fractional_coords(field_aligned)
+                dummy_aligned_frac = lattice.get_fractional_coords(dummy_aligned)
+
+                return field_aligned_frac, dummy_aligned_frac
+            else:
+                return None
+
+        accepted_positions = []
+        accepted_dummy = []
+        indices_to_remove = []
+
+        for i, generated_molecule in enumerate(restructured_molecules):
+            new_position, new_dummy = align_molecule_to_field(generated_molecule, field_coordinate, field_wt_dummy, lattice, threshold=rmsd_cutoff)
+            if new_position is not None:
+                accepted_positions.append(new_position)
+                accepted_dummy.append(new_dummy)
+            else:
+                indices_to_remove.append(i)
+
+        for index in reversed(indices_to_remove):
+            del binding_sites[index]
+
+        # Below is much like previous gala, reorder the bidning sites so it is easier to read and easier to input into xyz files
+            
+        if self.gala.max_number_bs != float('inf'):
+            if len(binding_sites) > self.gala.max_number_bs:
+                binding_sites = binding_sites[:self.gala.max_number_bs]
+            elif len(binding_sites) < self.gala.max_number_bs:
+                logger.info(
+                    "Less binding sites found than requested, proceeding with all binding sites")
+
+        cleaned_binding_site = []
+        for molecule in accepted_dummy:
+            include_guests = [
+                [str(element.symbol) for element in self.guest_molecule_data.species], [str(element) for element in self.guest_molecule_data.labels], molecule]
+            cleaned_binding_site.append(include_guests)
+
+        self._binding_site_maxima = binding_sites
+        self._binding_sites_cart = self.convert_to_cartesian(
+            cleaned_binding_site)
+        self._binding_sites = cleaned_binding_site
+
 
     def convert_to_cartesian(self, input_data):
         """
@@ -725,6 +1059,7 @@ class GuestMolecule(Molecule):
                 original binding sites is preserved.
         """
         unique_sites = []
+       
         for site in reversed(binding_sites):
             if len(site) == 1:
                 unique_sites.append(site)
@@ -737,6 +1072,31 @@ class GuestMolecule(Molecule):
                            np.array_equal(np.abs(reversed_site[2][1]), np.abs(unique_site[2][1])) for unique_site in unique_sites):
                     unique_sites.append(site)
         return list(reversed(unique_sites))
+
+
+
+    def filter_duplicates_and_inverses(self, binding_sites):
+        """
+        Removes duplicate and inverse binding sites from a list of binding sites.
+
+        Args:
+            self (object): The object calling this method.
+            binding_sites (list): A list of binding sites, where each binding site is represented
+                as a list. Binding sites can have different lengths.
+
+        Returns:
+            list: A list of binding sites with duplicates and inverses removed. The order of the
+                original binding sites is preserved.
+        """
+        unique_sites = []
+        for site in binding_sites:
+            # Convert the coordinates of each site to a set for comparison
+            site_coordinates = {tuple(np.abs(coord)) for _, coord, _ in site}
+            # Check if the current set of coordinates is already in unique_sites
+            if site_coordinates not in [set(tuple(np.abs(coord)) for _, coord, _ in unique_site) for unique_site in unique_sites]:
+                unique_sites.append(site)
+        return unique_sites
+
 
     def remove_duplicates(self, lst):
         """
@@ -879,18 +1239,22 @@ class GuestMolecule(Molecule):
 
     def mk_dl_poly_control(self, cutoff, dummy=False):
         """CONTROL file for binding site energy calculation."""
-        if dummy:
-            stats = 1
-            steps = 1
-        else:
-            stats = 1
-            steps = 1
+
+        opt = self.gala.opt_binding_sites
+        opt_steps = self.gala.opt_steps
+        stats = 1
+
+        if opt == True:
+            ensemble = "ensemble nvt hoover 0.1\n"
+            steps = opt_steps
+        else: ensemble = "#ensemble nvt hoover 0.1\n"; steps = 1
+
         control = [
             "# minimisation\n",
             "optim energy 1.0\n",  # gives approx 0.01 kcal
             "steps %i\n" % steps,
             "timestep 0.001 ps\n",
-            "#ensemble nvt hoover 0.1\n",
+            ensemble,
             "cutoff %f angstrom\n" % cutoff,
             "delr 1.0 angstrom\n",
             "ewald precision 1d-6\n",
@@ -1037,7 +1401,7 @@ class GuestMolecule(Molecule):
 
         # Check if the header starts with VDW
         if not vdw_header or vdw_header[0] != "VDW":
-            raise ValueError("Expecting a VDW header but not found")
+            logger.error("Expecting a VDW header but not found")
 
         vdw_data = []
         vdw_count = 0
@@ -1078,7 +1442,7 @@ class GuestMolecule(Molecule):
                 break
 
         if atoms_index == -1:
-            raise ValueError("Could not find an 'ATOMS' line in the '&guest' molecular type section")
+            logger.error("Could not find an 'ATOMS' line in the '&guest' molecular type section")
 
         # Update the ATOMS count
         atoms_line_parts = lines[atoms_index].split()
@@ -1165,8 +1529,6 @@ class GuestMolecule(Molecule):
                 lines[index + 1] = "NUMMOLS 1\n"
                 continue
             
-            
-
             if in_guest_section:
                 if "ATOMS" in line:
                     # Skip the ATOMS line and modify the subsequent lines
@@ -1200,6 +1562,7 @@ class GuestMolecule(Molecule):
     def _gather_site_info(self, binding_site):
         """Gather site information from a binding site."""
         site_info_list = []
+
         for idx, (atom, coord) in enumerate(zip(binding_site[1], binding_site[2])):
             site_info_list.append([idx+1, atom, coord[0], coord[1], coord[2]])
         return site_info_list, len(site_info_list) + 1
@@ -1270,7 +1633,7 @@ class GuestMolecule(Molecule):
                 control.writelines(self.mk_dl_poly_control(cut))
             control.close()
         else:
-            print('Error - FIELD file missing')
+            logger.fatal('Error - FIELD file missing')
         
         if len(binding_site_atoms) == 1:
             binding_site_atoms.append('DUM')
@@ -1287,18 +1650,22 @@ class GuestMolecule(Molecule):
 
         binding_sites = self._binding_sites_cart
         if len(binding_sites) == 0:
-            sys.exit('GALA process concluded successfully - no binding sites were identified.')
+            logger.info('GALA process concluded successfully - no binding sites were identified.')
+            sys.exit(0)
         guest = self.formula_property
         fold_factor = self.minimum_supercell(
             cell=self.get_cube_structure.lattice.matrix, cutoff=self.gala.md_cutoff)
+       
         repeated_cell_number = np.prod(fold_factor)
         unitcell = self.get_cube_structure.copy()
+
         os.chdir(self.gala.directory)
         unitcell.make_supercell(scaling_matrix=fold_factor)
         supercell = unitcell
 
         supercell_dlp = self.split_and_recreate_supercell(
             supercell, fold_factor)
+   
         root_directory = "DL_poly_BS"
         root_directory = self._create_directory_structure(
             self.gala.directory, root_directory)
@@ -1327,6 +1694,7 @@ class GuestMolecule(Molecule):
                 root_directory, bs_directory_name)
 
             site_info_list, guest_idx = self._gather_site_info(binding_site)
+        
             self._handle_dl_poly_files(
                 bs_directory, binding_site[1], guest_idx, bs_idx, site_info_list, supercell_dlp, repeated_cell_number, standard=False)
             individual_directories.append(bs_directory)
@@ -1347,7 +1715,7 @@ class GuestMolecule(Molecule):
 
         if process.returncode != 0:
             error_message = f"Error: {EXE} failed in {directory} directory with return code {process.returncode}.\n"
-            print(error_message)
+            # logger.critical(error_message)
 
             with open(os.path.join(starting_dir, 'DL_POLY.output'), 'a') as f:
                 f.write(error_message)
@@ -1356,7 +1724,7 @@ class GuestMolecule(Molecule):
 
         if not os.path.exists(os.path.join(directory, 'STATIS')):
             error_message = f"Error: STATIS file not found in {directory} directory.\n"
-            print(error_message)
+            # logger.critical(error_message)
 
             with open(os.path.join(starting_dir, 'DL_POLY.output'), 'a') as f:
                 f.write(error_message)
@@ -1367,7 +1735,7 @@ class GuestMolecule(Molecule):
 
     def Submit_DL_Poly(self, no_submit, bs_directories, starting_dir, EXE, gala_delete_files):
         if no_submit:
-            print('info: GALA input files generated; skipping job submission\n')
+            logger.info('GALA input files generated; skipping job submission\n')
             return
 
         start_time = time.time()
@@ -1379,12 +1747,12 @@ class GuestMolecule(Molecule):
         self.check_and_save(bs_directories, starting_dir)
 
         if all(res == 0 for res in results):
-            print('DL Poly terminated normally')
+            logger.info('DL Poly terminated normally')
         elif any(res == 1 for res in results):
-            raise RuntimeError(
+            logger.error(
                 "Encountered an error: DL_POLY.X failed during execution.")
         elif any(res == 2 for res in results):
-            raise RuntimeError(
+            logger.error(
                 "Encountered an error: DL_POLY.X completed but the STATIS file was not found.")
 
         error_file = os.path.join(starting_dir, 'DL_POLY.output')
@@ -1393,7 +1761,7 @@ class GuestMolecule(Molecule):
 
         end_time = time.time()
         elapsed_time = end_time - start_time
-        print(f"DL Poly Subprocesses Elapsed Time: {elapsed_time:.2f} seconds")
+        logger.info(f"DL Poly Subprocesses Elapsed Time: {elapsed_time:.2f} seconds")
 
     def check_and_save(self, bs_directories, starting_dir):
         """
@@ -1516,6 +1884,9 @@ class GuestMolecule(Molecule):
         """
         guest = self.formula_property
         startdir = gala_input.directory
+        get_struct = self.get_cube_structure
+        old_binding_sites = self._binding_sites.copy()
+     
         os.chdir(filepath)
 
         if os.path.exists(os.path.join(filepath, f'{self.structure_name}_{guest}', 'STATIS')):
@@ -1524,11 +1895,14 @@ class GuestMolecule(Molecule):
             empty_esp = float(statis[3].split()[4])
 
         highest_occupency = self._binding_site_maxima[0][0][2]
+        replace_sites_coords = []
+
 
         for directories in os.listdir():
             if directories.startswith(f'{guest}_bs'):
                 binding_energies = []
                 for bs_idx, binding_site in enumerate(self._binding_site_maxima):
+                    
                     bs_directory = "%s_bs_%04d" % (guest, bs_idx)
                     output = open(os.path.join(bs_directory,
                                                'OUTPUT')).readlines()
@@ -1559,7 +1933,7 @@ class GuestMolecule(Molecule):
                                 lidx = ridx
                                 break
                         else:
-                            print('warning:No energies in STATIS\n')
+                            logger.warning('No energies in STATIS\n')
                         e_vdw = float(statis[-lidx].split()[3])
                         e_esp = float(statis[-lidx].split()[4]) - empty_esp
                         # can just use the peak value
@@ -1570,7 +1944,7 @@ class GuestMolecule(Molecule):
                                                'REVCON')).readlines()
                     # If using MD, skip is 4 due to velocities and forces!
                     revcon = revcon[6::2]
-
+                    
                     # Fix molecule if it crosses boundaries
                     # have to make dummy objects with fractional attribute for
                     # the minimum_image function
@@ -1595,14 +1969,15 @@ class GuestMolecule(Molecule):
                             e_vdw = float('nan')
                             e_esp = float('nan')
 
-                        fractional = [x % 1.0 for x in np.dot(
-                            cell_data[2], dummy_pos)]
+                        fractional = get_struct.lattice.get_fractional_coords(dummy_pos)
                         fractional_data.append(fractional)
+
                         if positions:
                             position = self.minimum_image(
                                 positions[0][1], dummy, cell_data[0])
                         else:
-                            position = np.dot(fractional, cell_data[0])
+                            # position = np.dot(fractional, cell_data[0])
+                            position = get_struct.lattice.get_cartesian_coords(fractional)
                         position_data.append(position)
 
                     # Post-loop processing
@@ -1624,13 +1999,16 @@ class GuestMolecule(Molecule):
                     binding_energies.append(
                         [percentage_occupancy, e_vdw, e_esp, positions])
 
+                    new_coord = np.array([get_struct.lattice.get_fractional_coords(coords[2]) for coords in positions])
+                    replace_sites_coords.append([bs_idx, new_coord])
+
                 with open(os.path.join(self.gala.output_directory, '%s_gala_binding_sites.xyz' % guest), 'w') as gala_out:
                     energy_cutoff = gala_input.max_bs_energy
                     frame_number = 0
                     for idx, bind in enumerate(binding_energies):
                         energy = bind[1] + bind[2]
     
-                        if np.isnan(energy) or energy <= energy_cutoff or energy > 0:
+                        if np.isnan(energy) or energy <= energy_cutoff:
                             continue
           
                         pc_elec = 100*bind[2]/energy
@@ -1650,8 +2028,19 @@ class GuestMolecule(Molecule):
                         gala_out.writelines(this_point)
                         frame_number += 1
                 gala_out.close()
+                
+        self._binding_sites = self.update_binding_sites(replace_sites_coords)
 
-        os.chdir(startdir)
+
+    def update_binding_sites(self, replace_sites_coords):
+        for item in replace_sites_coords:
+            index = item[0]  # Extract the index
+            new_coords = item[1]  # Extract the new coordinates
+
+            if 0 <= index < len(self._binding_sites):
+                self._binding_sites[index][-1] = new_coords
+
+        return self._binding_sites
 
 
 class GuestSites:
@@ -1669,6 +2058,9 @@ class GuestSites:
             charge (float): Charge of the site.
             parent_molecule (GuestMolecule): Parent molecule of the site.
         """
+
+        logger = logging.getLogger(__name__)
+
         self.label = label
         self.element = element
         self.coords = coords
@@ -1718,7 +2110,7 @@ class GuestSites:
             elif maxima_coords is not None:
                 fractional_coords = self.maxima_fractional_coordinates
             else:
-                raise Exception(
+                 logger.exception(
                     'Maxima coordinates not calculated. Run calculate_maxima first.')
 
             maxima_info = "Maxima:\n"
@@ -1749,7 +2141,7 @@ class GuestSites:
                 if self.gala.method == "FASTMC":
                     self.load_cube_data_fastmc()
                 else:
-                    raise ValueError(
+                     logger.error(
                         "Invalid directory value: " + self.gala.method)
 
         lattice = self.cube.structure.lattice
@@ -1805,60 +2197,62 @@ class GuestSites:
         sites = self.label
         sites_element = self.element
         fold = self.gala.gcmc_grid_factor
+        
+        logger.info('Reading Cube Data')
 
         probability_file = f'{dir}/Prob_Guest_{guests}_Site_{sites}_folded.cube'
         probability_file_unfolded = f'{dir}/Prob_Guest_{guests}_Site_{sites}.cube'
 
-        print('Looking for probability plot for guest: ', guests, 'at site: ', sites)
+        logger.info(f'Looking for probability plot for guest: {guests}, at site: {sites}')
 
         if os.path.exists(probability_file):
-            print('Attempting to read probability plot:', probability_file.split('/')[-1])
+            logger.info(f"Attempting to read probability plot: {probability_file.split('/')[-1]}")
             try:
                 self.cube = VolumetricData.from_cube(probability_file)
                 localdata = self.cube.data['total']
                 localdata = localdata / np.sum(localdata)
                 if self.gala.gcmc_write_folded:
-                    print('Input Files Were Already Folded, Skipped')
+                    logger.info('Input Files Were Already Folded, Skipped')
                 self._datapoints = localdata
             except Exception as e:
-                raise Exception(f'Error loading cube file: {probability_file}')
+                logger.exception(f'Error loading cube file: {probability_file}')
 
         elif not os.path.exists(probability_file) and os.path.exists(probability_file_unfolded):
-            print('Attempting to read probability plot:', probability_file_unfolded.split('/')[-1])
+            logger.info(f"Attempting to read probability plot: {probability_file_unfolded.split('/')[-1]}")
             try:
                 self.cube = VolumetricData.from_cube(probability_file_unfolded)
                 self.check_cube_divisibility(self.cube.dim, np.array(fold))
 
                 folded_dim = self.cube.dim // np.array(fold)
                 unit_cell = self.get_unit_cell_structure(fold)
-                localdata = self.folding_cube_file(fold, folded_dim)
-                localdata = localdata / np.sum(localdata)
+                site_data, localdata = self.folding_cube_file(fold, folded_dim)
+                site_data = site_data / np.sum(site_data)
 
                 # Tanimoto gives nan values
-                # if fold != (1,1,1):
-                #     avg_tanimoto, std_tanimoto = self.compute_tanimoto(localdata)
-                #     print(avg_tanimoto, std_tanimoto)
-                #     print("Average tanimoto score: {} +/- {}".format(avg_tanimoto, std_tanimoto))
+                if fold != (1,1,1):
+                    avg_tanimoto, std_tanimoto = self.compute_tanimoto(localdata)
+                    if avg_tanimoto < 0.75:
+                        logger.warning("Average tanimoto score: {:.3f} +/- {:.5f}".format(avg_tanimoto, std_tanimoto))
+                    else:
+                        logger.info("Average tanimoto score: {:.3f} +/- {:.5f}".format(avg_tanimoto, std_tanimoto))
                 
-                self.cube = VolumetricData(unit_cell, {'total': localdata})
+                self.cube = VolumetricData(unit_cell, {'total': site_data})
                 if self.gala.gcmc_write_folded:
                     self.save_folded_cube(dir, guests, sites)
-                self._datapoints = localdata
+                self._datapoints = site_data
 
             except Exception as e:
-                raise Exception(
-                    f'Error loading cube file: {probability_file_unfolded}')
+                logger.exception(f'Error loading cube file: {probability_file_unfolded}')
 
         elif not os.path.exists(probability_file) and sites_element == 'D':
             self._maxima_coordinates = ['N/A']
             self._maxima_values = ['N/A']
 
         else:
-            raise FileNotFoundError('''Error Code: UNAVAILABLE_CUBE_FILE
-Error Description: Unavailable Probability File
-Error Message: We apologize, but we couldn't locate any available unfolded or folded probability file required for this operation.\n''')
+            logger.exception("File not found: Unable to locate any available unfolded or folded probability plots required for this operation.")
 
     def check_cube_divisibility(self, cube_dims, fold_factors):
+
         is_divisible = cube_dims % fold_factors
         if np.any(is_divisible != 0):  # If any element is not divisible
             error_messages = []
@@ -1867,7 +2261,7 @@ Error Message: We apologize, but we couldn't locate any available unfolded or fo
                 if dim % fold_factor != 0:
                     error_messages.append(f'Grid points in {axes[i]}, {dim}, not divisible by fold factor, {fold_factor}')
             if error_messages:
-                raise ValueError('\n'.join(error_messages))
+                logger.error(f'Divisibility check failed: {error_messages}')
 
     def compute_tanimoto(self, data):
         tanimoto = []
@@ -1945,7 +2339,7 @@ Error Message: We apologize, but we couldn't locate any available unfolded or fo
 
         avg_data = np.mean(localdata, axis=0)
         normalized_data = avg_data / np.sum(avg_data)
-        return normalized_data
+        return normalized_data, localdata
 
     def save_folded_cube(self, dir, guests, sites):
         """
@@ -1981,8 +2375,8 @@ Error Message: We apologize, but we couldn't locate any available unfolded or fo
             if self.gala.method == "FASTMC":
                 self.load_cube_data_fastmc()
             else:
-                raise ValueError(
-                    "Invalid directory value: " + self.gala.method)
+                logger.exception(
+                    f'Invalid directory value: {self.gala.method}')
 
         original_data = self._datapoints
         temp_data = self._datapoints
@@ -2007,10 +2401,9 @@ Error Message: We apologize, but we couldn't locate any available unfolded or fo
             self._datapoints = original_data
 
         neighborhood = generate_binary_structure(np.ndim(temp_data), 2)
-
         footprint = int(round(self.gala.gcmc_radius / spacing, 0))
         neighborhood = iterate_structure(neighborhood, footprint)
-
+        
         local_max = maximum_filter(
             temp_data, footprint=neighborhood, mode='wrap') == temp_data
 
@@ -2040,7 +2433,6 @@ def post_gala_cleaning(dir):
     if os.path.exists(os.path.join(dir, 'DL_poly_BS')):
         shutil.rmtree(os.path.join(dir, 'DL_poly_BS'))
 
-
 if __name__ == "__main__":
 
     # --- Timing ---
@@ -2049,6 +2441,19 @@ if __name__ == "__main__":
 
     GALA_MAIN = os.getcwd()
     gala_input = GalaInput(GALA_MAIN)
+
+    logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.INFO, filename=f'{gala_input.directory}/gala.log', filemode='w')
+    logger = logging.getLogger(__name__)
+
+    logger.info('Reading Input File')
+    logger.info(f'Running GALA at: {gala_input.directory}')
+    for level, message in gala_input.temp_logs:
+        if level == 'INFO':
+            logger.info(message)
+        elif level == 'WARNING':
+            logger.warning(message)
+        elif level == 'ERROR':
+            logger.error(message)
 
     # Following section was for testing. when running the code, it will remove the DL_poly_BS folder and recreate all the directories.
     if os.path.exists(os.path.join(gala_input.directory, 'DL_poly_BS')) and os.path.isdir(os.path.join(gala_input.directory, 'DL_poly_BS')):
@@ -2079,6 +2484,9 @@ if __name__ == "__main__":
 
         structure.guest_molecules[i].update_gala(
             os.path.join(gala_input.directory, 'DL_poly_BS'))
+        
+        filename_cif_opt = f"{composition_formula}_binding_sites_optimized.cif"
+        structure.guest_molecules[i].write_binding_sites(filename=filename_cif_opt)
 
     if gala_input.cleaning:
         post_gala_cleaning(gala_input.directory)
@@ -2086,5 +2494,5 @@ if __name__ == "__main__":
     # --- --- ---
     end_time = time.time()
     elapsed_time = end_time - start_time
-    print(f"Runtime completion: {elapsed_time:.2f} seconds")
+    logger.info(f"Runtime completion: {elapsed_time:.2f} seconds")
     # --- --- ---
