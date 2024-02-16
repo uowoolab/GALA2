@@ -166,8 +166,8 @@ class GalaInput:
                 return timestep
             raise ValueError
         except ValueError:
-            self._log_temp('INFO', 'Using default 0.01 ps timestep')
-            return float(0.01)
+            self._log_temp('INFO', 'Using default 0.001 ps timestep')
+            return float(0.001)
 
     def _get_md_cutoff(self, line):
         try:
@@ -995,19 +995,20 @@ class GuestMolecule(Molecule):
             del binding_sites[index]
 
         # Below is much like previous gala, reorder the bidning sites so it is easier to read and easier to input into xyz files
-            
-        if self.gala.max_number_bs != float('inf'):
-            if len(binding_sites) > self.gala.max_number_bs:
-                binding_sites = binding_sites[:self.gala.max_number_bs]
-            elif len(binding_sites) < self.gala.max_number_bs:
-                logger.info(
-                    "Less binding sites found than requested, proceeding with all binding sites")
 
         cleaned_binding_site = []
         for molecule in accepted_dummy:
             include_guests = [
                 [str(element.symbol) for element in self.guest_molecule_data.species], [str(element) for element in self.guest_molecule_data.labels], molecule]
             cleaned_binding_site.append(include_guests)
+
+        if self.gala.max_number_bs != float('inf'):
+            if len(binding_sites) > self.gala.max_number_bs:
+                binding_sites = binding_sites[:self.gala.max_number_bs]
+                cleaned_binding_site = cleaned_binding_site[:self.gala.max_number_bs]
+            elif len(binding_sites) < self.gala.max_number_bs:
+                logger.info(
+                    "Less binding sites found than requested, proceeding with all binding sites")
 
         self._binding_site_maxima = binding_sites
         self._binding_sites_cart = self.convert_to_cartesian(
@@ -1242,6 +1243,7 @@ class GuestMolecule(Molecule):
 
         opt = self.gala.opt_binding_sites
         opt_steps = self.gala.opt_steps
+        timestep = self.gala.timestep
         stats = 1
 
         if opt == True:
@@ -1253,7 +1255,7 @@ class GuestMolecule(Molecule):
             "# minimisation\n",
             "optim energy 1.0\n",  # gives approx 0.01 kcal
             "steps %i\n" % steps,
-            "timestep 0.001 ps\n",
+            "timestep %f ps\n" % timestep,
             ensemble,
             "cutoff %f angstrom\n" % cutoff,
             "delr 1.0 angstrom\n",
@@ -1325,7 +1327,7 @@ class GuestMolecule(Molecule):
         total_cells = 1
         for factor in grid_factors:
             total_cells *= factor
-
+ 
         cells = [dict() for _ in range(total_cells)]
 
         for i, cell_data in enumerate(supercell_data):
@@ -1492,6 +1494,7 @@ class GuestMolecule(Molecule):
                 # Filter based on desired sites
                 if any(site in desired_sites for site in guest_elements):
                     guests.append((guest_data, guest_elements))
+
             framework_data, framework_elements = self.extract_framework(f)
             vdw_start_position = f.tell()
 
@@ -1586,6 +1589,7 @@ class GuestMolecule(Molecule):
         cut = self.gala.md_cutoff
         field_path = os.path.join(self.gala.directory, 'FIELD')
 
+
         # Extract number of molecules
         num_value = 0
         with open(field_path, 'r') as f:
@@ -1662,6 +1666,7 @@ class GuestMolecule(Molecule):
         os.chdir(self.gala.directory)
         unitcell.make_supercell(scaling_matrix=fold_factor)
         supercell = unitcell
+        
 
         supercell_dlp = self.split_and_recreate_supercell(
             supercell, fold_factor)
@@ -2008,7 +2013,7 @@ class GuestMolecule(Molecule):
                     for idx, bind in enumerate(binding_energies):
                         energy = bind[1] + bind[2]
     
-                        if np.isnan(energy) or energy <= energy_cutoff:
+                        if np.isnan(energy) or energy <= energy_cutoff: # TODO For release, edit it back to: if np.isnan(energy) or energy <= energy_cutoff or energy > 0:
                             continue
           
                         pc_elec = 100*bind[2]/energy
@@ -2294,8 +2299,8 @@ class GuestSites:
           in each dimension to compute the unit cell structure.
         """
         bounds = (1 / fold[0], 1 / fold[1], 1 / fold[2])
-        unit_cell_sites = [site for site in self.cube.structure if all(
-            0 <= c < bounds[i] for i, c in enumerate(site.frac_coords))]
+
+        unit_cell_sites = [site for site in self.cube.structure if all(0 <= np.around(c, 4) < bounds[i] for i, c in enumerate(site.frac_coords))]
         unit_cell_sites_frac_coords = [
             site.frac_coords * fold for site in unit_cell_sites]
 
@@ -2305,6 +2310,7 @@ class GuestSites:
                               [site.species_string for site in unit_cell_sites],
                               unit_cell_sites_frac_coords,
                               coords_are_cartesian=False)
+        
         return unit_cell
 
     def folding_cube_file(self, fold, folded_dim):
