@@ -808,6 +808,7 @@ class GuestMolecule(Molecule):
         self._binding_sites_cart = self.convert_to_cartesian(
             cleaned_binding_site)
         
+        
     def calculate_binding_sites_rmsd(self):
         
         try:
@@ -900,11 +901,7 @@ class GuestMolecule(Molecule):
         
         # Filter dulplicate and reversable molecules (checks if the same combination of coordiantes are used more than ones)
         binding_sites = self.filter_duplicates_and_inverses(all_combinations)
-
-        binding_sites = sorted(
-                binding_sites, key=lambda x: x[0][2], reverse=True)
         
-
         # Function to restructure the molecule data so it matches original gala's inputs
         def restructure_molecule_data(molecules):
             restructured_data = []
@@ -916,7 +913,17 @@ class GuestMolecule(Molecule):
             return restructured_data
 
         restructured_molecules = restructure_molecule_data(binding_sites)
-        
+
+        binding_sites = [
+            [(molecule[0][:3] + (sum(atom[2] for atom in molecule) / len(molecule),))] + molecule[1:]
+            for molecule in binding_sites
+            ]
+
+        binding_sites = sorted(
+                binding_sites, key=lambda x: x[0][3], reverse=True)
+
+
+
         def modify_coordinates(coords, lattice):
             """ Save the cartesian coordinates of edge molecules using the image and translating the site to the 
             corresponding position, required for fitting accuratly the maximas to the field molecule"""
@@ -1014,7 +1021,6 @@ class GuestMolecule(Molecule):
         self._binding_sites_cart = self.convert_to_cartesian(
             cleaned_binding_site)
         self._binding_sites = cleaned_binding_site
-
 
     def convert_to_cartesian(self, input_data):
         """
@@ -1891,7 +1897,7 @@ class GuestMolecule(Molecule):
         startdir = gala_input.directory
         get_struct = self.get_cube_structure
         old_binding_sites = self._binding_sites.copy()
-     
+        rmsd_data = False
         os.chdir(filepath)
 
         if os.path.exists(os.path.join(filepath, f'{self.structure_name}_{guest}', 'STATIS')):
@@ -1899,13 +1905,21 @@ class GuestMolecule(Molecule):
                 filepath, f'{self.structure_name}_{guest}', 'STATIS')).readlines()
             empty_esp = float(statis[3].split()[4])
 
-        highest_occupency = self._binding_site_maxima[0][0][2]
+
+        if self.gala.bs_algorithm == 0:
+            highest_occupancy = self._binding_site_maxima[0][0][2]
+        elif self.gala.bs_algorithm == 1:
+            rmsd_data = True
+            highest_occupancy = self._binding_site_maxima[0][0][3]
+
+
         replace_sites_coords = []
 
 
         for directories in os.listdir():
             if directories.startswith(f'{guest}_bs'):
                 binding_energies = []
+                atom_count = len(self.binding_sites[0][0])
                 for bs_idx, binding_site in enumerate(self._binding_site_maxima):
                     
                     bs_directory = "%s_bs_%04d" % (guest, bs_idx)
@@ -1942,7 +1956,13 @@ class GuestMolecule(Molecule):
                         e_vdw = float(statis[-lidx].split()[3])
                         e_esp = float(statis[-lidx].split()[4]) - empty_esp
                         # can just use the peak value
-                        magnitude = binding_site[0][2]
+
+                        if self.gala.bs_algorithm == 0:
+                            magnitude = binding_site[0][2]
+                        elif self.gala.bs_algorithm == 1:
+                            magnitude = binding_site[0][3]
+
+                        # magnitude = binding_site[0][2]
 
                     # get position position
                     revcon = open(os.path.join(bs_directory,
@@ -1996,13 +2016,18 @@ class GuestMolecule(Molecule):
                         self.guest_molecule_data.site_properties['sites_label'], self.guest_molecule_data.site_properties['elements'], position_data)]
 
                     percentage_occupancy = (
-                        magnitude / highest_occupency) * 100
+                        magnitude / highest_occupancy) * 100
 
                     # print("info:Binding site %i: %f kcal/mol, %.2f%% occupancy\n" %
                     #         (bs_idx, (e_vdw+e_esp), percentage_occupancy))
 
-                    binding_energies.append(
-                        [percentage_occupancy, e_vdw, e_esp, positions])
+                    if rmsd_data:
+                        site_occupancies = [round(binding_site[i][2], 10) if i < len(binding_site) else "-" for i in range(atom_count)]
+                        binding_energies.append(
+                            [percentage_occupancy, e_vdw, e_esp, positions, site_occupancies])
+                    else:
+                        binding_energies.append(
+                            [percentage_occupancy, e_vdw, e_esp, positions])
 
                     new_coord = np.array([get_struct.lattice.get_fractional_coords(coords[2]) for coords in positions])
                     replace_sites_coords.append([bs_idx, new_coord])
@@ -2010,6 +2035,7 @@ class GuestMolecule(Molecule):
                 with open(os.path.join(self.gala.output_directory, '%s_gala_binding_sites.xyz' % guest), 'w') as gala_out:
                     energy_cutoff = gala_input.max_bs_energy
                     frame_number = 0
+                    
                     for idx, bind in enumerate(binding_energies):
                         energy = bind[1] + bind[2]
     
@@ -2025,11 +2051,21 @@ class GuestMolecule(Molecule):
                             "Eesp= %.2f, occ= %.2f%%\n" %
                             (idx, frame_number, energy, pc_elec, bind[1], bind[2],
                                 bind[0])]
-                        for atom in bind[3]:
-                            this_point.append("%-5s " % atom[0])
-                            this_point.append("%-5s " % atom[1])
-                            this_point.append(
-                                "%12.6f %12.6f %12.6f\n" % tuple(atom[2]))
+                        
+                        if rmsd_data:
+                            for atom, s_occ in zip(bind[3], bind[4]):
+                                this_point.append("%-5s " % atom[0])
+                                this_point.append("%-5s " % atom[1])
+                                this_point.append("%12.6f %12.6f %12.6f         " % tuple(atom[2]))
+                                this_point.append("%-5s \n" % s_occ)
+
+                        else:
+                            for atom in bind[3]:
+                                this_point.append("%-5s " % atom[0])
+                                this_point.append("%-5s " % atom[1])
+                                this_point.append(
+                                    "%12.6f %12.6f %12.6f\n" % tuple(atom[2]))
+                        
                         gala_out.writelines(this_point)
                         frame_number += 1
                 gala_out.close()
@@ -2492,7 +2528,9 @@ if __name__ == "__main__":
             os.path.join(gala_input.directory, 'DL_poly_BS'))
         
         filename_cif_opt = f"{composition_formula}_binding_sites_optimized.cif"
-        structure.guest_molecules[i].write_binding_sites(filename=filename_cif_opt)
+        if gala_input.opt_binding_sites:
+
+            structure.guest_molecules[i].write_binding_sites(filename=filename_cif_opt)
 
     if gala_input.cleaning:
         post_gala_cleaning(gala_input.directory)
