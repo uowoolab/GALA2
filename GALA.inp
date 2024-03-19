@@ -33,28 +33,32 @@ Software Choice: [FASTMC, RASPA] (default: FASTMC):
 FASTMC
 Input Files Path:
 
-Max Binding Sites (integer, optional): 
+Maximum Number of Binding Sites (integer, optional): 
 
-Max Binding Sites Energy (integer, optional, default: -100 kJ/mol):
+Maximum Binding Sites Energy (integer, optional, default: -100 kJ/mol):
+
+Generate CIF for high occupancy sites (default: F); useful for structural analysis.
 
 ------------------------------------------------------------------------------------------
                                     Binding Site Algorithm
 Algorithm Selection: [0: Legacy GALA (vectorial), 1: RMDS] (default: 1):
-1
-If RMDS selected, additional options:
-Overlap Tolerance (default: 0.3):
 
-RMSD Cutoff (default: 0.1):
+If RMDS is selected, additional options:
+Overlap Tolerance (float, default: 0.3):
+
+RMSD Cutoff (float, default: 0.1):
+
+Exclude hydrogen in fitting algorithm (default: F); affects binding site identification.
 
 ------------------------------------------------------------------------------------------
                                 MD Parameters
-MD Program Executable: <Enter executable name, e.g., DLPOLY.X>:
+MD Program Executable: < Enter executable name, e.g., DLPOLY.X >:
 DLPOLY.X
 Optimize Binding Sites [T/F] (default: F):
 
 Optimization Step (Required if "Optimize Binding Sites" is T) (default: 1000):
 
-Timestep (ps) (default: 0.01):
+Timestep (ps) (default: 0.001):
 
 Cutoff (Angstrom) (default: 12.5):
 

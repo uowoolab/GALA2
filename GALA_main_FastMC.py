@@ -42,35 +42,41 @@ class GalaInput:
         self.directory = self._get_directory(lines[34])
         self.max_number_bs = self._get_max_number_bs(lines[36])
         self.max_bs_energy = self._get_max_bs_energy(lines[38])
+        self.cif_of_maxima = lines[40].strip('\n').upper() == "T"
         self.output_directory = self._get_output_directory()
 
         # Binding Site
-        self.bs_algorithm = self._get_bs_algorithm(lines[42])
-        self.overlap_tol = self._get_ov_tol(lines[45])
-        self.rmsd_cutoff = self._get_rmsd_cutoff(lines[47])
+        self.bs_algorithm = self._get_bs_algorithm(lines[44])
+        self.overlap_tol = self._get_ov_tol(lines[47])
+        self.rmsd_cutoff = self._get_rmsd_cutoff(lines[49])
+        self.include_h = lines[51].strip('\n').upper() == "T"
 
         # MD Parameters
-        self.md_exe = lines[51].strip('\n')
-        self.opt_binding_sites = lines[53].strip('\n').upper() == "T"
-        self.opt_steps = self._get_opt_steps(lines[55])
-        self.timestep = self._get_timestep(lines[57])
-        self.md_cutoff = self._get_md_cutoff(lines[59])
-        self.md_cpu = self._get_md_cpu(lines[61])
+        self.md_exe = lines[55].strip('\n')
+        self.opt_binding_sites = lines[57].strip('\n').upper() == "T"
+        self.opt_steps = self._get_opt_steps(lines[59])
+        self.timestep = self._get_timestep(lines[61])
+        self.md_cutoff = self._get_md_cutoff(lines[63])
+        self.md_cpu = self._get_md_cpu(lines[65])
 
         # GCMC Analysis Parameters
-        self.gcmc_sigma = self._get_sigma(lines[65])
-        self.gcmc_radius = self._get_radius(lines[67])
-        self.gcmc_cutoff = self._get_cutoff(lines[69]) # nice
-        self.gcmc_write_folded = lines[71].strip('\n').upper() == "T"
-        self.gcmc_grid_factor = self._get_gcmc_grid_factor(lines[73])
-        self.gcmc_write_smoothed = lines[75].strip('\n').upper() == "T"
+        self.gcmc_sigma = self._get_sigma(lines[69])
+        self.gcmc_radius = self._get_radius(lines[71])
+        self.gcmc_cutoff = self._get_cutoff(lines[73])
+        self.gcmc_write_folded = lines[75].strip('\n').upper() == "T"
+        self.gcmc_grid_factor = self._get_gcmc_grid_factor(lines[77])
+        self.gcmc_write_smoothed = lines[79].strip('\n').upper() == "T"
 
         # Probability Plot Guest and Site Selection
-        self.selected_guest = self._get_selected_guest(lines[80])
-        self.selected_site = self._get_selected_site(lines[82])
+        self.selected_guest = self._get_selected_guest(lines[84])
+        self.selected_site = self._get_selected_site(lines[86])
 
         # Post Process Cleaning Section
-        self.cleaning = lines[86].strip('\n').upper() == "T"
+        self.cleaning = lines[90].strip('\n').upper() == "T"
+
+    def print_attributes(instance):
+        for attr, value in vars(instance).items():
+            print(f"{attr}: {value}")
 
     def _log_temp(self, level, message):
         """Stores a log message with level in the temporary list."""
@@ -109,7 +115,7 @@ class GalaInput:
         except ValueError:
             self._log_temp('WARNING', 'Invalid input. Default binding energy is used.')
             return float(-100.0)
-        
+            
     def _get_bs_algorithm(self, line):
         try:
             algorithm = int(line.strip('\n'))
@@ -202,7 +208,7 @@ class GalaInput:
     def _get_cutoff(self, line):
         try:
             cutoff = float(line.strip('\n'))
-            if cutoff > 0:
+            if cutoff >= 0:
                 return cutoff
             raise ValueError
         except ValueError:
@@ -822,6 +828,7 @@ class GuestMolecule(Molecule):
 
         overlap_tolerance = self.gala.overlap_tol
         rmsd_cutoff = self.gala.rmsd_cutoff
+        hydrogen = self.gala.include_h
 
         # All all information needed to run RMDS algorithm
         sites_elements = []
@@ -832,20 +839,29 @@ class GuestMolecule(Molecule):
         # Save only the information for the non dummy sites
         for idx, atom in enumerate(self.guest_molecule_data.site_properties['elements']):
             for site in self.guest_sites:
-                if atom != 'D':
-                    if str(atom) == str(site.element):
-                        sites_elements.append(site.element)
-                        guest_atoms.append((idx, site.label))
-                        sites_labels.append(site.label)
-                else:
-                    pass
+                # Exclude dummy atoms and, if hydrogen is True, exclude hydrogen atoms as well
+                if atom == 'D' or (atom == 'H' and hydrogen):
+                    continue
+                
+                # If the atom matches the site element, add to lists
+                if str(atom) == str(site.element):
+                    sites_elements.append(site.element)
+                    guest_atoms.append((idx, site.label))
+                    sites_labels.append(site.label)
 
-        field_molecule = Molecule(species=sites_elements, labels=sites_labels, coords=field_coordinate)
+        if hydrogen:
+            indices_only = [idx for idx, site in guest_atoms]
+            field_coordinate_rm_h = np.array([coord for idx, coord in enumerate(field_coordinate) if idx in indices_only])
+            field_molecule = Molecule(species=sites_elements, labels=sites_labels, coords=field_coordinate_rm_h)
+        else:
+            field_molecule = Molecule(species=sites_elements, labels=sites_labels, coords=field_coordinate)
 
         field_wt_dummy = self.guest_molecule_data.cart_coords.copy()
 
-        sites = {x.label: (x.maxima_cartesian_coordinates, x._maxima_values) 
-            for x in self.guest_sites if x.element != 'D'}
+        sites = {
+            x.label: (x.maxima_cartesian_coordinates, x._maxima_values)
+            for x in self.guest_sites
+            if x.element != 'D' and not (x.element == 'H' and hydrogen)}
 
         # Function to calculate distances bettween all possible atom combinations of the FIELD file guest
         def calculate_distances(molecule):
@@ -923,7 +939,6 @@ class GuestMolecule(Molecule):
                 binding_sites, key=lambda x: x[0][3], reverse=True)
 
 
-
         def modify_coordinates(coords, lattice):
             """ Save the cartesian coordinates of edge molecules using the image and translating the site to the 
             corresponding position, required for fitting accuratly the maximas to the field molecule"""
@@ -952,22 +967,25 @@ class GuestMolecule(Molecule):
             molecule[2] = modified_coords
 
 
-        def align_molecule_to_field(generated_molecule, field_molecule, dummy_mol, lattice, threshold):
-            """ Fit the field molecule on the maxima coordiante molecule generated earlier. CUrrently using 0.1 (#TODO Add option to input to modify this)"""
+        def align_molecule_to_field(generated_molecule, field_molecule, dummy_mol, lattice, threshold, guest=None):
+            """ Fit the field molecule on the maxima coordiante molecule generated earlier."""
             
             # Caluclate common point between the 2 molecules (Centroid)
             centroid_gen = rmsd.centroid(np.array(generated_molecule[2]))
             centroid_field = rmsd.centroid(field_molecule)
             centroid_dummy = rmsd.centroid(dummy_mol)
+            
 
             # Translate the FIELD molecule to the centroid of the generated molecule
             field_translated = field_molecule - centroid_field
             dummy_translated = dummy_mol - centroid_dummy
+            
 
             # Rotate FIELD molecule to best fit the generated molecule using Kabsch algorithm
             U = rmsd.kabsch(field_translated, np.array(generated_molecule[2]))
             field_rotated = np.dot(field_translated, U)
             dummy_rotated = np.dot(dummy_translated, U)
+            
 
             # Calculate RMSD
             rmsd_value = rmsd.rmsd(field_rotated, np.array(generated_molecule[2]) - centroid_gen)
@@ -982,7 +1000,17 @@ class GuestMolecule(Molecule):
                 field_aligned_frac = lattice.get_fractional_coords(field_aligned)
                 dummy_aligned_frac = lattice.get_fractional_coords(dummy_aligned)
 
-                return field_aligned_frac, dummy_aligned_frac
+                if hydrogen:
+                    centroid_guest = rmsd.centroid(guest)
+                    guest_translated = guest - centroid_guest
+                    guest_rotated = np.dot(guest_translated, U)
+                    guest_aligned_frac = lattice.get_fractional_coords(guest_rotated)
+
+                    return guest_aligned_frac, dummy_aligned_frac
+                
+                else:
+                    return field_aligned_frac, dummy_aligned_frac
+                
             else:
                 return None
 
@@ -991,7 +1019,11 @@ class GuestMolecule(Molecule):
         indices_to_remove = []
 
         for i, generated_molecule in enumerate(restructured_molecules):
-            new_position, new_dummy = align_molecule_to_field(generated_molecule, field_coordinate, field_wt_dummy, lattice, threshold=rmsd_cutoff)
+
+            if hydrogen:
+                new_position, new_dummy = align_molecule_to_field(generated_molecule, field_coordinate_rm_h, field_wt_dummy, lattice, threshold=rmsd_cutoff, guest=field_coordinate)
+            else:
+                new_position, new_dummy = align_molecule_to_field(generated_molecule, field_coordinate, field_wt_dummy, lattice, threshold=rmsd_cutoff)
             if new_position is not None:
                 accepted_positions.append(new_position)
                 accepted_dummy.append(new_dummy)
@@ -1001,7 +1033,7 @@ class GuestMolecule(Molecule):
         for index in reversed(indices_to_remove):
             del binding_sites[index]
 
-        # Below is much like previous gala, reorder the bidning sites so it is easier to read and easier to input into xyz files
+        # Below is much like previous gala, reorder the binding sites so it is easier to read and easier to input into xyz files
 
         cleaned_binding_site = []
         for molecule in accepted_dummy:
@@ -1243,6 +1275,22 @@ class GuestMolecule(Molecule):
     def write_guest_info(self, filename):
         with open(os.path.join(self.gala.output_directory, filename), 'w') as f:
             f.write(str(self))
+
+    def write_local_maxima(self, filename):
+
+        framework = self.get_cube_structure
+        structure_with_maxima = framework.copy()
+
+        local_maximas = {x.element: x.maxima_cartesian_coordinates 
+            for x in self.guest_sites if x.element != 'D'}
+
+        for atom_type, coordinates in local_maximas.items():
+            for coord in coordinates:
+                coord = framework.lattice.get_fractional_coords(coord)
+                structure_with_maxima.append(species=atom_type, coords=coord)
+
+        CifWriter(structure_with_maxima).write_file(
+            os.path.join(self.gala.output_directory, filename))
 
     def mk_dl_poly_control(self, cutoff, dummy=False):
         """CONTROL file for binding site energy calculation."""
@@ -2311,8 +2359,9 @@ class GuestSites:
                             ((combo[0] * combo[0]).sum() +
                             (combo[1] * combo[1]).sum() -
                             (combo[0] * combo[1]).sum()))
-            
-        tanimoto = [x for x in tanimoto if str(x) != 'nan'] # Remove nan, temp
+        
+        # Uncommented to test effect of np.sum on the tanimoto - Contact Oli if you get a 'nan' 
+        # tanimoto = [x for x in tanimoto if str(x) != 'nan'] # Remove nan, temp 
 
         return (np.mean(tanimoto), np.std(tanimoto))
 
@@ -2419,10 +2468,22 @@ class GuestSites:
             else:
                 logger.exception(
                     f'Invalid directory value: {self.gala.method}')
-
+        
         original_data = self._datapoints
         temp_data = self._datapoints
-        normalising_sum = sum(temp_data)
+
+        # TODO figure this out
+        # Investigating issue 1
+        # Normalization is not clear, sum function is summing over axis 0 (x)
+        # and returning a 2D array from a 3D array. 
+
+        # I modified sum to the np.sum equivilant (3D to 2D)
+        normalising_sum = np.sum(temp_data, axis=0, keepdims=True)
+
+        # or
+
+        #normalising_sum = np.sum(original_data)
+
         dimension = (np.array(self.cube.dim)).reshape(-1, 1)
         cell = self.cube.structure.lattice.matrix
         spacing = np.linalg.norm(cell[0][0] / dimension[0])
@@ -2431,8 +2492,18 @@ class GuestSites:
         sigma = (self.gala.gcmc_sigma / spacing) ** 0.5
         temp_data = gaussian_filter(temp_data, sigma, mode="wrap")
 
+        # Investigating issue 1
+        # Normalization is not clear, sum function is summing over axis 0 (x)
+        # and returning a 2D array from a 3D array. 
         np.seterr(divide='ignore', invalid='ignore')
-        temp_data *= normalising_sum / sum(temp_data)
+
+        # sum would scale the 3D temp data by a 2D array. 
+        # np.sum scales the 3D uniformaly using a the scalar sum. 
+        temp_data *= normalising_sum / np.sum(temp_data, axis=0, keepdims=True)
+
+        # or
+
+        # temp_data *= normalising_sum / np.sum(temp_data)
 
         if self.gala.gcmc_write_smoothed:
             guests = self.parent_molecule
@@ -2484,6 +2555,9 @@ if __name__ == "__main__":
     GALA_MAIN = os.getcwd()
     gala_input = GalaInput(GALA_MAIN)
 
+    # Debug GalaInput class
+    # gala_input.print_attributes()
+
     logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.INFO, filename=f'{gala_input.directory}/gala.log', filemode='w')
     logger = logging.getLogger(__name__)
 
@@ -2510,10 +2584,15 @@ if __name__ == "__main__":
         filename_cif = f"{composition_formula}_binding_sites.cif"
         filename_xyz = f"{composition_formula}_binding_sites_fractional.xyz"
         filename_txt = f"{composition_formula}_guest_information.xyz"
+        maxima_cif = f'{composition_formula}_local_maximas.cif'
         structure.guest_molecules[i].write_binding_sites(filename=filename_cif)
         structure.guest_molecules[i].write_binding_sites_fractional(
             filename=filename_xyz)
         structure.guest_molecules[i].write_guest_info(filename=filename_txt)
+
+        if gala_input.cif_of_maxima:
+            structure.guest_molecules[i].write_local_maxima(filename=maxima_cif)
+
         directories = structure.guest_molecules[i].Make_Files()
 
         structure.guest_molecules[i].Submit_DL_Poly(
@@ -2528,8 +2607,8 @@ if __name__ == "__main__":
             os.path.join(gala_input.directory, 'DL_poly_BS'))
         
         filename_cif_opt = f"{composition_formula}_binding_sites_optimized.cif"
-        if gala_input.opt_binding_sites:
 
+        if gala_input.opt_binding_sites:
             structure.guest_molecules[i].write_binding_sites(filename=filename_cif_opt)
 
     if gala_input.cleaning:
