@@ -1012,7 +1012,7 @@ class GuestMolecule(Molecule):
                     return field_aligned_frac, dummy_aligned_frac
                 
             else:
-                return None
+                return None, None
 
         accepted_positions = []
         accepted_dummy = []
