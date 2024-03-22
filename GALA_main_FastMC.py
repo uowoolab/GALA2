@@ -2385,7 +2385,11 @@ class GuestSites:
         """
         bounds = (1 / fold[0], 1 / fold[1], 1 / fold[2])
 
-        unit_cell_sites = [site for site in self.cube.structure if all(0 <= np.around(c, 4) < bounds[i] for i, c in enumerate(site.frac_coords))]
+        unit_cell_sites = [
+            site for site in self.cube.structure
+            if np.any(np.round(site.frac_coords, 2) >= 0) and np.any(site.frac_coords < bounds)
+        ]
+        
         unit_cell_sites_frac_coords = [
             site.frac_coords * fold for site in unit_cell_sites]
 
