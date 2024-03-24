@@ -2476,17 +2476,11 @@ class GuestSites:
         original_data = self._datapoints
         temp_data = self._datapoints
 
-        # TODO figure this out
-        # Investigating issue 1
-        # Normalization is not clear, sum function is summing over axis 0 (x)
-        # and returning a 2D array from a 3D array. 
-
-        # I modified sum to the np.sum equivilant (3D to 2D)
-        normalising_sum = np.sum(temp_data, axis=0, keepdims=True)
-
+        # Older version
+        # normalising_sum = np.sum(original_data, axis=0, keepdims=True)
         # or
-
-        #normalising_sum = np.sum(original_data)
+        # Updated Version
+        normalising_sum = np.sum(original_data)
 
         dimension = (np.array(self.cube.dim)).reshape(-1, 1)
         cell = self.cube.structure.lattice.matrix
@@ -2496,18 +2490,12 @@ class GuestSites:
         sigma = (self.gala.gcmc_sigma / spacing) ** 0.5
         temp_data = gaussian_filter(temp_data, sigma, mode="wrap")
 
-        # Investigating issue 1
-        # Normalization is not clear, sum function is summing over axis 0 (x)
-        # and returning a 2D array from a 3D array. 
-        np.seterr(divide='ignore', invalid='ignore')
-
-        # sum would scale the 3D temp data by a 2D array. 
-        # np.sum scales the 3D uniformaly using a the scalar sum. 
-        temp_data *= normalising_sum / np.sum(temp_data, axis=0, keepdims=True)
-
+        # Older version
+        # temp_data_sum = np.sum(temp_data, axis=0, keepdims=True)
+        # temp_data *= np.divide(normalising_sum, temp_data_sum, out=np.zeros_like(normalising_sum), where=temp_data_sum!=0)
         # or
-
-        # temp_data *= normalising_sum / np.sum(temp_data)
+        # Updated Version
+        temp_data *= normalising_sum / np.sum(temp_data)
 
         if self.gala.gcmc_write_smoothed:
             guests = self.parent_molecule
