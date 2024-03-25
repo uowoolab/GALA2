@@ -2387,7 +2387,7 @@ class GuestSites:
 
         unit_cell_sites = [
             site for site in self.cube.structure
-            if np.any(np.round(site.frac_coords, 2) >= 0) and np.any(site.frac_coords < bounds)
+            if np.all(np.round(site.frac_coords, 2) >= 0) and np.all(np.round(site.frac_coords, 5) < bounds)
         ]
         
         unit_cell_sites_frac_coords = [
