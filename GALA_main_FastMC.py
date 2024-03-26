@@ -925,19 +925,21 @@ class GuestMolecule(Molecule):
                 elements = [element for element, _, _ in molecule]
                 coords = [coords for _, coords, _ in molecule]
                 occupancies = [occ for _, _, occ in molecule]
-                restructured_data.append([elements, coords, occupancies, []])
+                avg_occupancy = np.average(occupancies)
+                restructured_data.append([elements, coords, [], occupancies, avg_occupancy])
             return restructured_data
 
         restructured_molecules = restructure_molecule_data(binding_sites)
+        restructured_molecules = sorted(
+                restructured_molecules, key=lambda x: x[4], reverse=True)
 
         binding_sites = [
             [(molecule[0][:3] + (sum(atom[2] for atom in molecule) / len(molecule),))] + molecule[1:]
             for molecule in binding_sites
             ]
-
+  
         binding_sites = sorted(
                 binding_sites, key=lambda x: x[0][3], reverse=True)
-
 
         def modify_coordinates(coords, lattice):
             """ Save the cartesian coordinates of edge molecules using the image and translating the site to the 
@@ -962,10 +964,9 @@ class GuestMolecule(Molecule):
             return modified_cart_coords.tolist()
 
         for molecule in restructured_molecules:
-            _, coords, _, _ = molecule
+            _, coords, _, _, _ = molecule
             modified_coords = modify_coordinates(coords, lattice)
             molecule[2] = modified_coords
-
 
         def align_molecule_to_field(generated_molecule, field_molecule, dummy_mol, lattice, threshold, guest=None):
             """ Fit the field molecule on the maxima coordiante molecule generated earlier."""
@@ -1031,6 +1032,7 @@ class GuestMolecule(Molecule):
                 indices_to_remove.append(i)
 
         for index in reversed(indices_to_remove):
+            del restructured_molecules[index]
             del binding_sites[index]
 
         # Below is much like previous gala, reorder the binding sites so it is easier to read and easier to input into xyz files
