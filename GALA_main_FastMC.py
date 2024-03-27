@@ -2385,23 +2385,33 @@ class GuestSites:
         - If the fold is (2,2,2), it means we are considering half of the structure 
           in each dimension to compute the unit cell structure.
         """
-        bounds = (1 / fold[0], 1 / fold[1], 1 / fold[2])
+        unit_cell_species = self.cube.structure.species
+        unit_cell_coords = self.cube.structure.cart_coords
+        unit_cell_lattice = self.cube.structure.lattice.matrix / fold
+        unit_cell = Structure(lattice=unit_cell_lattice,
+                              species=unit_cell_species,
+                              coords=unit_cell_coords,
+                              coords_are_cartesian=True)
+                           
+        # Take care of mirror images (fold them in)
+        for atom in unit_cell:
+            atom.frac_coords = atom.frac_coords % 1
 
-        unit_cell_sites = [
-            site for site in self.cube.structure
-            if np.all(np.round(site.frac_coords, 2) >= 0) and np.all(np.round(site.frac_coords, 5) < bounds)
-        ]
-        
-        unit_cell_sites_frac_coords = [
-            site.frac_coords * fold for site in unit_cell_sites]
+        # If any have fractional coordinates close to 1, just make them 0
+        for atom in unit_cell:
+            if any(np.round(atom.frac_coords, 2) == 1):
+                for x in range(3):
+                    if round(atom.frac_coords[x], 2) == 1:
+                        atom.frac_coords[x] = 0
 
-        constraint_lattice = self.cube.structure.lattice.matrix / \
-            np.array(fold)[:, None]
-        unit_cell = Structure(constraint_lattice,
-                              [site.species_string for site in unit_cell_sites],
-                              unit_cell_sites_frac_coords,
-                              coords_are_cartesian=False)
-        
+        unique_idx = np.unique(np.around(unit_cell.frac_coords, 2),
+                               axis=0,
+                               return_index=True)[1]
+        all_idx = np.arange(len(unit_cell.frac_coords))
+        bad_idx = np.where(~np.isin(all_idx, unique_idx))[0]
+
+        unit_cell.remove_sites(bad_idx)
+
         return unit_cell
 
     def folding_cube_file(self, fold, folded_dim):
