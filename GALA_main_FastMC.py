@@ -198,7 +198,7 @@ class GalaInput:
     def _get_sigma(self, line):
         try:
             sigma = float(line.strip('\n'))
-            if sigma > 0:
+            if sigma >= 0:
                 return sigma
             raise ValueError
         except ValueError:
