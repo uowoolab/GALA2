@@ -2387,7 +2387,7 @@ class GuestSites:
         """
         unit_cell_species = self.cube.structure.species
         unit_cell_coords = self.cube.structure.cart_coords
-        unit_cell_lattice = self.cube.structure.lattice.matrix / fold
+        unit_cell_lattice = self.cube.structure.lattice.matrix / np.asarray(fold).reshape((3, 1))
         unit_cell = Structure(lattice=unit_cell_lattice,
                               species=unit_cell_species,
                               coords=unit_cell_coords,
