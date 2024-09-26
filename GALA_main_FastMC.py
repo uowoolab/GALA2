@@ -25,6 +25,7 @@ from pymatgen.io.cif import CifWriter
 from scipy.ndimage import gaussian_filter, maximum_filter
 from scipy.ndimage import generate_binary_structure, binary_erosion, iterate_structure
 
+
 warnings.filterwarnings("ignore", message="No Pauling electronegativity for ")
 
 
