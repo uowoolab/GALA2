@@ -103,10 +103,6 @@ Ensure to configure the input file accurately to execute GALA effectively. Below
 
 #### MD Parameters
 
-Certainly! Here’s the revised MD Parameters section with the added information about the dedicated CPU for parallelization.
-
-#### MD Parameters
-
 - **MD Program Executable:** (Required)
   - Provide the location or name of the executable for running Molecular Dynamics simulations.
   - Example: `/path/to/executable`
