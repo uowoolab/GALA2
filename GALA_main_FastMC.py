@@ -1805,7 +1805,7 @@ class GuestMolecule(Molecule):
             os.path.join(self.gala.output_directory, filename)
         )
 
-    def mk_dl_poly_control(self, cutoff, dummy=False):
+    def mk_dl_poly_control(self, cutoff, is_framework, dummy=False):
         """CONTROL file for binding site energy calculation."""
 
         opt = self.gala.opt_binding_sites
@@ -1813,7 +1813,7 @@ class GuestMolecule(Molecule):
         timestep = self.gala.timestep
         stats = 1
 
-        if opt == True:
+        if opt == True and is_framework == False:
             ensemble = "ensemble nvt hoover 0.1\n"
             steps = opt_steps
         else:
@@ -2226,7 +2226,8 @@ class GuestMolecule(Molecule):
                     is_empty=standard,
                 )
             with open(os.path.join(directory, "CONTROL"), "w") as control:
-                control.writelines(self.mk_dl_poly_control(cut))
+                is_framework = "_bs_0000" not in os.path.basename(directory)
+                control.writelines(self.mk_dl_poly_control(cut, is_framework))
             control.close()
         else:
             logger.fatal("Error - FIELD file missing")
@@ -3189,7 +3190,7 @@ class GuestSites:
         eroded_background = binary_erosion(
             background, structure=neighborhood, border_value=1
         )
-        detected_peaks = local_max ^ eroded_background
+        detected_peaks = local_max &~ eroded_background
 
         peaks = np.where(detected_peaks)
         cartesian_peaks = []
