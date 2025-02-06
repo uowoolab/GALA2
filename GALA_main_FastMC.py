@@ -236,12 +236,16 @@ class GalaInput:
         """Parses the timestep for dynamics simulation from the input line. Returns float."""
         try:
             timestep = float(line.strip("\n"))
-            if timestep > 0:
-                return timestep
+            if self.opt_binding_sites:
+                if timestep > 0:
+                    return timestep
+                else:
+                    self._log_temp("INFO", "Invalid timestep for site optimization, using default 0.001 ps timestep")
+                    return float(0.001)
             raise ValueError
         except ValueError:
-            self._log_temp("INFO", "Using default 0.001 ps timestep")
-            return float(0.001)
+            self._log_temp("INFO", "Using default 0.0 ps timestep")
+            return float(0.0)
 
     def _get_md_cutoff(self, line: str) -> float:
         """Parses the cutoff distance for molecular dynamics from the input line. Returns float."""
@@ -278,8 +282,8 @@ class GalaInput:
                 return sigma
             raise ValueError
         except ValueError:
-            self._log_temp("WARNING", "Using default sigma of 2")
-            return int(2)
+            self._log_temp("WARNING", "Using default sigma of 0.4")
+            return float(0.4)
 
     def _get_cutoff(self, line: str) -> float:
         """Parses the cutoff parameter for GCMC from the input line. Returns float."""

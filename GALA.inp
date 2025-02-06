@@ -54,11 +54,11 @@ Exclude hydrogen in fitting algorithm (default: F); affects binding site identif
                                 MD Parameters
 MD Program Executable: < Enter executable name, e.g., DLPOLY.X >:
 DLPOLY.X
-Optimize Binding Sites [T/F] (default: F):
+Optimize Binding Sites (OBS) [T/F] (default: F):
 
 Optimization Step (Required if "Optimize Binding Sites" is T) (default: 1000):
 
-Timestep (ps) (default: 0.001):
+Timestep (ps) (default: 0.0 if OBS is F, 0.001 if OBS is T):
 
 Cutoff (Angstrom) (default: 12.5):
 
@@ -66,7 +66,7 @@ Dedicated CPUs for MD simulation(default: 1):
 
 ------------------------------------------------------------------------------------------
                             GCMC Analysis Parameters
-Sigma (default: 2):
+Sigma (default: 0.4):
 
 Radius (default: 0.45): 
 
