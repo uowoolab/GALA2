@@ -692,7 +692,6 @@ class GuestStructure:
             ]
             selected_guest = guests_reduced
 
-        # Initialize the lists outside the loop:
         selected_guests_list = []
         valid_labels = []
         coordinates = []
@@ -711,14 +710,12 @@ class GuestStructure:
                 )
             )
 
-            # Append to the lists:
             valid_labels.append(selected_guest["valid_labels"])
             coordinates.append(selected_guest["coordinates"])
             species.append(selected_guest["species"])
             site_data_unfilted.append(selected_guest["site_data_unfilted"])
             site_data.append(selected_guest["site_data"])
 
-            # Add selected_guest to the list of lists:
             selected_guests_list.append(selected_guest)
 
         return (
@@ -1233,7 +1230,6 @@ class GuestMolecule(Molecule):
         rmsd_cutoff = self.gala.rmsd_cutoff
         hydrogen = self.gala.include_h
 
-        # All all information needed to run RMDS algorithm
         sites_elements = []
         sites_labels = []
         guest_atoms = []
@@ -1368,7 +1364,7 @@ class GuestMolecule(Molecule):
                     )
                     current_molecule.pop()
 
-        # Get all of the possible combinations of molecule where the difference between the atoms are within 0.3
+        # Get all of the possible combinations of molecule where the difference between the atoms are within the Overlap tolerance.
         all_combinations = []
         build_molecule(
             [],
@@ -1383,7 +1379,7 @@ class GuestMolecule(Molecule):
         # Filter dulplicate and reversable molecules (checks if the same combination of coordiantes are used more than ones)
         binding_sites = self.filter_duplicates_and_inverses(all_combinations)
 
-        # Function to restructure the molecule data so it matches original gala's inputs
+        # Function to restructure the molecule data so it matches the legacy gala's inputs
         def restructure_molecule_data(molecules):
             restructured_data = []
             for molecule in molecules:
@@ -1413,13 +1409,10 @@ class GuestMolecule(Molecule):
             """Save the cartesian coordinates of edge molecules using the image and translating the site to the
             corresponding position, required for fitting accuratly the maximas to the field molecule
             """
-            # Convert each atom's Cartesian coordinates to fractional
             frac_coords = lattice.get_fractional_coords(coords)
 
-            # Create a new array for modified fractional coordinates
             modified_frac_coords = np.zeros_like(frac_coords)
 
-            # Reference point
             ref_point = frac_coords[0]
 
             for i in range(len(frac_coords)):
@@ -1428,10 +1421,8 @@ class GuestMolecule(Molecule):
                 )
                 modified_frac_coords[i] = frac_coords[i] + np.array(jimage)
 
-            # Convert modified fractional coordinates back to Cartesian
             modified_cart_coords = lattice.get_cartesian_coords(modified_frac_coords)
 
-            # Return the modified coordinates as a list
             return modified_cart_coords.tolist()
 
         for molecule in restructured_molecules:
@@ -1527,7 +1518,7 @@ class GuestMolecule(Molecule):
             del restructured_molecules[index]
             del binding_sites[index]
 
-        # Below is much like previous gala, reorder the binding sites so it is easier to read and easier to input into xyz files
+        # Below is much like legacy gala, reorder the binding sites so it is easier to read and easier to input into xyz files
 
         cleaned_binding_site = []
         for molecule in accepted_dummy:
@@ -2067,7 +2058,6 @@ class GuestMolecule(Molecule):
 
             guests = []
 
-            # Extract guests' data
             for _ in range(molecular_types - 1):
                 guest_data, guest_elements = self.extract_guest(f)
                 # Filter based on desired sites
@@ -2744,8 +2734,8 @@ class GuestMolecule(Molecule):
 
     def update_binding_sites(self, replace_sites_coords):
         for item in replace_sites_coords:
-            index = item[0]  # Extract the index
-            new_coords = item[1]  # Extract the new coordinates
+            index = item[0]
+            new_coords = item[1]
 
             if 0 <= index < len(self._binding_sites):
                 self._binding_sites[index][-1] = new_coords
@@ -2933,6 +2923,7 @@ class GuestSites:
                 self.cube = VolumetricData.from_cube(probability_file)
                 localdata = self.cube.data["total"]
                 localdata = localdata / np.sum(localdata)
+                self.get_entropy(localdata)
                 if self.gala.gcmc_write_folded:
                     logger.info("Input Files Were Already Folded, Skipped")
                 self._datapoints = localdata
@@ -2977,7 +2968,8 @@ class GuestSites:
                         f"{probability_file_unfolded.split('/')[-1]}\n\tAverage tanimoto score: {avg_tanimoto:.3f} +/- {std_tanimoto:.5f}\n"
                     )
                     f.close()
-
+                
+                self.get_entropy(site_data)
                 self.cube = VolumetricData(unit_cell, {"total": site_data})
                 if self.gala.gcmc_write_folded:
                     self.save_folded_cube(dir, guests, sites)
@@ -3029,6 +3021,25 @@ class GuestSites:
 
         return (np.mean(tanimoto), np.std(tanimoto))
 
+    def get_entropy(self,volumetric_data):
+        flattened_data = volumetric_data.flatten()
+        H = entropy(flattened_data)
+        H_max = np.log(flattened_data.shape[0])
+        S = H / H_max
+
+        if S < 0.15:
+            logger.info(
+                "Relative entropy {:.4f} — the distribution is very localized, likely centred around a few main binding sites.".format(S)
+            )
+        elif 0.15 <= S < 0.85:
+            logger.info(
+                "Relative entropy {:.4f} — the density is spread out over several regions with similar occupancy. Could indicate multiple low-occupancy sites or weaker binding preferences.".format(S)
+            )
+        else:
+            logger.warning(
+                "Relative entropy {:.4f} — the distribution is very broad. Fitting may not report binding sites due to lack of consistent density data.".format(S)
+            )
+    
     def get_unit_cell_structure(cube, fold):
         """
         Computes the unit cell structure by considering a subset of the structure
