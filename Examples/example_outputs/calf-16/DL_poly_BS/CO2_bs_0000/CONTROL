@@ -1,0 +1,13 @@
+# minimisation
+optim energy 1.0
+steps 1
+timestep 0.000000 ps
+#ensemble nvt hoover 0.1
+cutoff 12.500000 angstrom
+delr 1.0 angstrom
+ewald precision 1d-6
+job time 199990 seconds
+close time 2000 seconds
+stats  1
+#traj 1,100,2
+finish

@@ -1,0 +1,4 @@
+Prob_Guest_CO2_Site_Cx.cube
+	Average tanimoto score: 0.996 +/- 0.00044
+Prob_Guest_CO2_Site_Ox.cube
+	Average tanimoto score: 0.997 +/- 0.00026

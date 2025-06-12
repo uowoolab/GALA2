@@ -1,0 +1,24 @@
+Prob_Guest_C2H2_Site_Cx_folded.cube
+	Entropy: 0.6245
+Prob_Guest_C2H2_Site_Hx_folded.cube
+	Entropy: 0.6734
+Prob_Guest_C2H2_Site_Cx_folded.cube
+	Entropy: 0.6245
+Prob_Guest_C2H2_Site_Hx_folded.cube
+	Entropy: 0.6734
+Prob_Guest_C2H2_Site_Cx_folded.cube
+	Entropy: 0.6245
+Prob_Guest_C2H2_Site_Hx_folded.cube
+	Entropy: 0.6734
+Prob_Guest_C2H2_Site_Cx_folded.cube
+	Entropy: 0.6245
+Prob_Guest_C2H2_Site_Hx_folded.cube
+	Entropy: 0.6734
+Prob_Guest_C2H2_Site_Cx_folded.cube
+	Entropy: 0.6245
+Prob_Guest_C2H2_Site_Hx_folded.cube
+	Entropy: 0.6734
+Prob_Guest_C2H2_Site_Cx_folded.cube
+	Entropy: 0.6245
+Prob_Guest_C2H2_Site_Hx_folded.cube
+	Entropy: 0.6734

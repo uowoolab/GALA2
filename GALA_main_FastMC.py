@@ -26,8 +26,12 @@ from scipy.ndimage import gaussian_filter, maximum_filter
 from scipy.ndimage import generate_binary_structure, binary_erosion, iterate_structure
 from scipy.stats import entropy
 
+# Suppress Warnings
 warnings.filterwarnings("ignore", message="No Pauling electronegativity for ")
-
+np.seterr(all='ignore')
+np.seterr(over='ignore', under='ignore', divide='ignore', invalid='ignore')
+devnull = open(os.devnull, 'w')
+os.dup2(devnull.fileno(), sys.stderr.fileno())
 
 class GalaInput:
     """
@@ -3240,7 +3244,7 @@ if __name__ == "__main__":
     gala_input = GalaInput(GALA_MAIN)
 
     # Debug GalaInput class
-    gala_input.print_attributes()
+    # gala_input.print_attributes()
 
     logging.basicConfig(
         format="%(levelname)s: %(message)s",

@@ -1,0 +1,4 @@
+Prob_Guest_CO2_Site_Cx.cube
+	Entropy: 0.5546
+Prob_Guest_CO2_Site_Ox.cube
+	Entropy: 0.6402

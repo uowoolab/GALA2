@@ -1,0 +1,24 @@
+INFO: Reading Input File
+INFO: Running GALA at: /share_scratch/omarchand/Examples_new/ran/calf-16
+WARNING: Invalid input. All binding sites will be printed.
+WARNING: Invalid input. Default binding energy is used.
+INFO: Using default number of steps allocation for DL Poly calculations (Step = 1)
+INFO: Using default 0.0 ps timestep
+WARNING: Invalid input. Default gcmc cutoff is used. (12.500000)
+INFO: No guest selected, using all guests.
+INFO: No site selected, using all sites.
+INFO: Calculating Binding Sites
+INFO: Processing bidning sites using RMSD algorithm
+INFO: Reading Cube Data
+INFO: Looking for probability plot for guest: CO2, at site: Cx
+INFO: Attempting to read probability plot: Prob_Guest_CO2_Site_Cx_folded.cube
+INFO: Relative entropy 0.6611 — the density is spread out over several regions with similar occupancy. Could indicate multiple low-occupancy sites or weaker binding preferences.
+INFO: Input Files Were Already Folded, Skipped
+INFO: Reading Cube Data
+INFO: Looking for probability plot for guest: CO2, at site: Ox
+INFO: Attempting to read probability plot: Prob_Guest_CO2_Site_Ox_folded.cube
+INFO: Relative entropy 0.7364 — the density is spread out over several regions with similar occupancy. Could indicate multiple low-occupancy sites or weaker binding preferences.
+INFO: Input Files Were Already Folded, Skipped
+INFO: DL Poly terminated normally
+INFO: DL Poly Subprocesses Elapsed Time: 0.24 seconds
+INFO: Runtime completion: 2.07 seconds

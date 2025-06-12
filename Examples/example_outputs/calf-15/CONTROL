@@ -1,0 +1,30 @@
+GCMC Run
+temperature  173.000000
+steps    100000000
+equilibration    -1000000
+max guest atoms      3000
+max framework atoms      15000
+cutoff          12.500000 angstrom
+delr            1.0 angstrom
+ewald precision  1d-6
+numguests 1000
+history 0
+# jobcontrol
+&guest 1
+  pressure (bar) 0.456411
+  probability 2
+  1  1
+  2  2  3
+&end
+move insert 0.333000
+move delete 0.333000
+move displace 0.333000
+move swap 0.000000
+move switch 0.000000
+move jump 0.000000
+
+grid factors 2 2 2
+
+grid spacing 0.150000
+
+finish
