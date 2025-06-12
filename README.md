@@ -17,10 +17,10 @@
   <p align="center">
     GALA is an automated tool that identifies and fits guest binding sites from GCMC probability distributions in porous materials.
     <br />
-    <a href="https://github.com/uowoolab/GALA2/HOWTOGALA.md"><strong>Explore the docs »</strong></a>
+    <a href="https://github.com/uowoolab/GALA2/blob/main/HOWTOGALA.md"><strong>Explore the docs »</strong></a>
     <br />
     <br />
-    <a href="https://github.com/uowoolab/GALA2/Examples">View Demo</a>
+    <a href="https://github.com/uowoolab/GALA2/tree/main/Examples">View Demo</a>
     &middot;
     <a href="https://github.com/uowoolab/GALA2/issues/new?labels=bug&template=bug-report---.md">Report Bug</a>
     &middot;
@@ -96,13 +96,13 @@ Distributed under the project_license. See `LICENSE.txt` for more information.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-[contributors-shield]: https://img.shields.io/github/contributors/olimarc/GALA2?style=for-the-badge
+[contributors-shield]: https://img.shields.io/github/contributors/uowoolab/GALA2?style=for-the-badge
 [contributors-url]: https://github.com/uowoolab/GALA2/graphs/contributors
-[forks-shield]: https://img.shields.io/github/forks/olimarc/GALA2.svg?style=for-the-badge
+[forks-shield]: https://img.shields.io/github/forks/uowoolab/GALA2.svg?style=for-the-badge
 [forks-url]: https://github.com/uowoolab/GALA2/network/members
-[stars-shield]: https://img.shields.io/github/stars/olimarc/GALA2.svg?style=for-the-badge
+[stars-shield]: https://img.shields.io/github/stars/uowoolab/GALA2.svg?style=for-the-badge
 [stars-url]: https://github.com/uowoolab/GALA2/stargazers
-[issues-shield]: https://img.shields.io/github/issues/olimarc/GALA2.svg?style=for-the-badge
+[issues-shield]: https://img.shields.io/github/issues/uowoolab/GALA2.svg?style=for-the-badge
 [issues-url]: https://github.com/uowoolab/GALA2/issues
-[license-shield]: https://img.shields.io/github/license/olimarc/GALA2.svg?style=for-the-badge
+[license-shield]: https://img.shields.io/github/license/uowoolab/GALA2.svg?style=for-the-badge
 [license-url]: https://github.com/uowoolab/GALA2/blob/master/LICENSE.txt
