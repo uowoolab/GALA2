@@ -20,6 +20,7 @@ import numpy as np
 
 from pymatgen.core import Element, Molecule, Structure, Lattice
 from pymatgen.io.common import VolumetricData
+from itertools import permutations
 from pymatgen.analysis.structure_matcher import StructureMatcher
 from pymatgen.util.coord import pbc_shortest_vectors
 from pymatgen.io.cif import CifWriter
@@ -1575,6 +1576,7 @@ class GuestMolecule(Molecule):
         sites_elements = []
         sites_labels = []
         guest_atoms = []
+        sites_index = []
         field_coordinate = self.cart_coords
 
         # Save only the information for the non dummy sites
@@ -1592,6 +1594,7 @@ class GuestMolecule(Molecule):
                 sites_elements.append(atom)
                 guest_atoms.append((idx, site))
                 sites_labels.append(site)
+                sites_index.append(idx)
             else:
                 pass
 
@@ -1608,10 +1611,11 @@ class GuestMolecule(Molecule):
                 species=sites_elements,
                 labels=sites_labels,
                 coords=field_coordinate_rm_h,
+                site_properties={"index":sites_index}
             )
         else:
             field_molecule = Molecule(
-                species=sites_elements, labels=sites_labels, coords=field_coordinate
+                species=sites_elements, labels=sites_labels, coords=field_coordinate, site_properties={"index":sites_index}
             )
 
         field_wt_dummy = self.guest_molecule_data.cart_coords.copy()
@@ -1627,7 +1631,8 @@ class GuestMolecule(Molecule):
             for i in range(len(molecule)):
                 for j in range(i + 1, len(molecule)):
                     dist = molecule.get_distance(i, j)
-                    distances[f"{i}_{j}"] = dist
+                    field_idx = molecule.site_properties["index"]
+                    distances[f"{field_idx[i]}_{field_idx[j]}"] = dist
             return distances
 
         distances = calculate_distances(field_molecule)
@@ -1777,6 +1782,7 @@ class GuestMolecule(Molecule):
             lattice,
             threshold,
             guest=None,
+            permutation=False
         ):
             """Fit the field molecule on the maxima coordiante molecule generated earlier."""
 
@@ -1816,11 +1822,17 @@ class GuestMolecule(Molecule):
                     guest_aligned_frac = lattice.get_fractional_coords(guest_rotated)
 
                     return guest_aligned_frac, dummy_aligned_frac
+                
+                elif permutation:
+
+                    return field_aligned_frac, dummy_aligned_frac, rmsd_per_atom
 
                 else:
 
                     return field_aligned_frac, dummy_aligned_frac
 
+            elif permutation:
+                return None, None, None
             else:
                 return None, None
 
@@ -1828,31 +1840,66 @@ class GuestMolecule(Molecule):
         accepted_dummy = []
         indices_to_remove = []
 
-        for i, generated_molecule in enumerate(restructured_molecules):
+        # This is only necessary for the methane five site model were the hydrogens are explicitly included
+        if self.formula_property == "CH4":
+            for i, generated_molecule in enumerate(restructured_molecules):
+                best_rmsd = np.inf
+                best_position = None
+                best_position_dummy = None
+                original_coords = generated_molecule[2]
+                fixed_C = original_coords[0]
+                movable_Hs = original_coords[1:]
 
-            if hydrogen:
-                new_position, new_dummy = align_molecule_to_field(
-                    generated_molecule,
-                    field_coordinate_rm_h,
-                    field_wt_dummy,
-                    lattice,
-                    threshold=rmsd_cutoff,
-                    guest=field_coordinate,
-                )
-            else:
-                new_position, new_dummy = align_molecule_to_field(
-                    generated_molecule,
-                    field_coordinate,
-                    field_wt_dummy,
-                    lattice,
-                    threshold=rmsd_cutoff,
-                )
+                for perm in permutations(movable_Hs):
+                    generated_molecule[1] = [fixed_C] + list(perm)
+                    generated_molecule[2] = [fixed_C] + list(perm)
 
-            if new_position is not None:
-                accepted_positions.append(new_position)
-                accepted_dummy.append(new_dummy)
-            else:
-                indices_to_remove.append(i)
+                    new_position, new_dummy, rmsd_current = align_molecule_to_field(
+                        generated_molecule,
+                        field_coordinate,
+                        field_wt_dummy,
+                        lattice,
+                        threshold=rmsd_cutoff,
+                        permutation=True
+                    )
+
+                    if new_position is not None:
+                        if rmsd_current < best_rmsd:
+                            best_rmsd = rmsd_current
+                            best_position = new_position
+                            best_position_dummy = new_dummy
+
+                if best_position is not None:
+                    accepted_positions.append(best_position)
+                    accepted_dummy.append(best_position_dummy)
+                else:
+                    indices_to_remove.append(i)
+        else:
+            for i, generated_molecule in enumerate(restructured_molecules):
+
+                if hydrogen:
+                    new_position, new_dummy = align_molecule_to_field(
+                        generated_molecule,
+                        field_coordinate_rm_h,
+                        field_wt_dummy,
+                        lattice,
+                        threshold=rmsd_cutoff,
+                        guest=field_coordinate,
+                    )
+                else:
+                    new_position, new_dummy = align_molecule_to_field(
+                        generated_molecule,
+                        field_coordinate,
+                        field_wt_dummy,
+                        lattice,
+                        threshold=rmsd_cutoff,
+                    )
+
+                if new_position is not None:
+                    accepted_positions.append(new_position)
+                    accepted_dummy.append(new_dummy)
+                else:
+                    indices_to_remove.append(i)
 
         for index in reversed(indices_to_remove):
             del restructured_molecules[index]

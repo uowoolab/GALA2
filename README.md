@@ -36,7 +36,7 @@ Primary developer and maintainer of GALP. Responsible for algorithm design, impl
 
 - **Jake Burner** – *PhD student, University of Ottawa*
 
-Developed a machine learning workflow using binding site maxima extracted with GALP and integrated an option to predict full atomic probability distributions without explicit GCMC simulations. Further details are available in: [J. Burner *et al.*, 2025](https://chemrxiv.org/engage/chemrxiv/article-details/68bf29fd23be8e43d6c7af1f).
+Developed a machine learning workflow using binding site maxima extracted with GALP and integrated an option to predict full adsorbate probability distributions without explicit GCMC simulations. Further details are available in: [J. Burner *et al.*, 2025](https://chemrxiv.org/engage/chemrxiv/article-details/68bf29fd23be8e43d6c7af1f).
 
 ### Original Creation Acknowledgment
 
@@ -46,7 +46,7 @@ Creator of the original legacy GALA vectorial binding site localization algorith
 
 ## About The Project
 
-GALP is a binding site identification tool designed to extract chemically meaningful guest binding sites from Grand Canonical Monte Carlo (GCMC) probability distributions in porous materials such as metal organic frameworks (MOF). The algorithm operates on atomic probability distributions (APD) generated from GCMC simulations, applies Gaussian smoothing to suppress statistical noise, and identifies high probability regions as candidate binding sites. Using a reference molecular geometry from the guest force field model, GALP fits the guest molecule to each site via a recursive RMSD based alignment procedure.
+GALP is a binding site identification tool designed to extract chemically meaningful guest binding sites from Grand Canonical Monte Carlo (GCMC) probability distributions in porous materials such as metal organic frameworks (MOF). The algorithm operates on adsorbate probability distributions (APD) generated from GCMC simulations, applies Gaussian smoothing to suppress statistical noise, and identifies high probability regions as candidate binding sites. Using a reference molecular geometry from the guest force field model, GALP fits the guest molecule to each site via a recursive RMSD based alignment procedure.
 
 Key parameters including occupancy cutoffs, exclusion radii, and the maximum number of binding sites are fully user adjustable, allowing the method to be adapted to a wide range of host guest systems. The resulting configurations are suitable for downstream analysis, including force field based energy minimization and quantum chemical calculations. GALP is fully automated, scalable, and designed for high throughput screening workflows.
 
@@ -54,14 +54,48 @@ A legacy version of the underlying binding site localization algorithm has previ
 
 GALP currently supports APDs generated with both FastMC and RASPA. Example workflows for each GCMC engine are provided, along with dedicated documentation describing the required inputs, supported options, and recommended analysis procedures.
 
+## Applications in the Literature
+
+GALP has been applied in recent studies for both predictive modeling and validation of adsorption behaviour.
+
+### Machine learning workflows
+
+*Rapid prediction of adsorbate probability distributions in metal-organic frameworks using graph neural networks*
+
+*ChemRxiv*, 2025  
+DOI: 10.26434/chemrxiv-2025-tn0rh
+
+Reference:  
+[J. Burner *et al.*, 2025](https://chemrxiv.org/engage/chemrxiv/article-details/68bf29fd23be8e43d6c7af1f)
+
+Binding site maxima extracted by GALP from GCMC-derived APDs were used to guide probe sampling during machine learning training, focusing sampling on physically meaningful adsorption regions and enabling prediction of full adsorbate probability distributions without explicit GCMC simulations.
+
+### Validation against experimental binding sites
+
+*How well do conventional atomistic simulations predict adsorption binding sites in metal–organic frameworks compared to experiment?*
+
+*Materials Advances*, 2026, Advance Article  
+DOI: 10.1039/D6MA00185H  
+
+Reference:  
+[J. Burner, O. Marchand *et al.*, 2026](https://pubs.rsc.org/en/content/articlehtml/2026/ma/d6ma00185h)
+
+GALP was used to evaluate the ability of standard atomistic simulations to reproduce experimentally determined adsorption binding sites. The results show that common simulation approximations can still accurately recover local binding sites, even when global adsorption behaviour is not well captured.
+
 ## Citation
 
-If you use GALP in your work, please cite the software repository:
+If you use GALP in your work, please cite both the software repository and the associated thesis:
 
+**Software**  
 O. Marchand, J. Burner, *GALP: Guest Atom Localization from Probabilities*,  
 GitHub repository, https://github.com/uowoolab/GALP
 
-A peer reviewed manuscript describing GALP is currently in preparation. This citation will be updated upon publication.
+**Thesis**  
+O. Marchand, *[An Automated Method for Extracting Adsorption Binding Sites in MOFs from GCMC Simulations with Direct Comparison to Experimentally Determined Binding Sites](https://ruor.uottawa.ca/items/d4c2a171-a8d5-414e-9221-8c756ecc5816)*,  
+Master’s thesis, University of Ottawa, 2026.  
+*(see Chapter 2 for GALP methodology)*
+
+A peer-reviewed manuscript describing GALP is currently in preparation and will be added here upon publication as the primary reference for citation.
 
 ## Getting Started
 
