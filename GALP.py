@@ -210,6 +210,14 @@ class GalaInput:
     def _get_method(self, line: str) -> str:
         """Extract the simulation method from the input line."""
         method = line.strip().upper()
+        if not method:
+            msg = (
+                "No simulation method specified in GALP.inp."
+                "Please define one of: RASPA or FASTMC."
+            )
+            self._log_temp("ERROR", msg)
+            print(f"ERROR: {msg}", file=sys.stderr)
+            sys.exit(1)
         if method in ("RASPA", "FASTMC"):
             return method
         msg = f"Invalid input: unknown method in GALP.inp file '{method}'"
